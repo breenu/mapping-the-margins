@@ -260,16 +260,32 @@ def test_compose_descriptor_matches_the_recorded_descriptor(shipped: DeclaredLat
 
 
 def test_shipped_composition_reads_as_expected(shipped: DeclaredLattice) -> None:
-    """The rank was chosen so every declared pair composes into a fluent phrase."""
+    """The rank was chosen so every declared pair composes into a fluent phrase.
+
+    UPDATED for lattice v1.1: compose_rank was reordered to class < age < ability < race < gender
+    after the P4a phrase review, so class now precedes age and race now precedes gender. Both cell
+    ids and descriptors change for those two pairs; the other five are untouched. See
+    `gender-composed-before-non-gender` and `age-before-status-adjective` in
+    ``margins.prompts.audit.PHRASE_REVIEW_NOTES``.
+    """
     by_id = {record.cell_id: record for record in shipped.records()}
+
+    # Unchanged by the v1.1 reordering.
     assert by_id["socioeconomic_class=working-class|race_ethnicity=Black"].descriptor == (
         "working-class Black"
     )
     assert by_id["age=older|ability=blind"].descriptor == "older blind"
     assert by_id["ability=blind|gender_and_sex=female"].descriptor == "blind female"
-    assert by_id["age=older|socioeconomic_class=working-class"].descriptor == (
-        "older working-class"
+
+    # Reordered at v1.1: quality/status before age, race before gender.
+    assert by_id["socioeconomic_class=working-class|age=older"].descriptor == (
+        "working-class older"
     )
+    assert by_id["race_ethnicity=Black|gender_and_sex=female"].descriptor == "Black female"
+
+    # The pre-v1.1 orderings must no longer exist at all.
+    assert "age=older|socioeconomic_class=working-class" not in by_id
+    assert "gender_and_sex=female|race_ethnicity=Black" not in by_id
 
 
 def test_compose_descriptor_rejects_a_cell_this_lattice_does_not_declare(

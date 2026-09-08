@@ -8,14 +8,83 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ complete.** P0: environment, `margins.repro`, `margins.config` + run
-manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols), walking
-skeleton, and the schema field-freeze test. P3: `margins.lattice` — `LatticeConfig`
+**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ complete.** P0: environment, `margins.repro`, `margins.config` +
+run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols),
+walking skeleton, and the schema field-freeze test. P3: `margins.lattice` — `LatticeConfig`
 (`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a **pinned
-descriptor source** (not a loader), and the two exports. 200 tests; all four gates green on
-`win_amd64` and in CI on both locked environments.
+descriptor source** (not a loader), and the two exports. P4a: `margins.prompts` —
+`TemplateRenderer`, 9 versioned Jinja frames, the leakage guard, and the phrase review (all 4
+findings resolved; lattice bumped to **v1.1**). 279 tests; all four gates green on `win_amd64` and
+in CI on both locked environments.
 
-**NEXT TASK: P4a — `TemplateRenderer` (`open_gen` prompt generation).** Not yet started.
+**NEXT TASK: P5 — model inference.** Not yet started. **Blocked on open decision #2** (exact 7–8B
+repo + pinned revision hash + license, plus the ~1B dev model) — settle it before writing the
+backend. Also due in W2: the **Kaggle timing pilot**, which converts the 880-prompt set into a
+measured GPU-h budget.
+
+### P4a as built (for P5 to consume)
+
+- **990 prompts** = 9 templates × 110 cells × 1 carrier, at `data/prompts/prompts_v1.jsonl`
+  (gitignored, regenerable via `scripts/build_prompts.py`). Byte-identical regeneration verified.
+- **`prompt_id` = `<template>::<cell_id>::<carrier>::<digest12>`** — readable natural key plus a
+  digest over the full rendering key *including the rendered text*, so a template edit that forgets
+  to bump `template_version` shows up as changed ids rather than silent drift.
+- **Carrier noun = `person`, a documented CONSTRUCT CHOICE** (`configs/prompts/open_gen_v1.yaml`).
+  Every obvious alternative is itself an identity axis; an occupational carrier would add an
+  undeclared second axis of variation to every cell. `CarrierSpec` refuses a non-neutral carrier
+  that does not name the axis it introduces; `MAX_CARRIERS = 3`.
+- **Leakage guard is enforced at render time, not by review:** the set of lattice identity terms in
+  a rendered prompt must equal *exactly* the set its cell contributes. Frames are additionally
+  checked against axis words, rejected if they place identity sentence-initially (capitalising it
+  would rewrite pinned `Black`/`Deaf` orthography), and a carrier may not be a lattice term.
+- **Article rule lives in the prompt config**, not the lattice: vowel-letter rule plus an override
+  table, and it **refuses to guess** on `eu-`/`u-`/`one-`/`hon-`. No overrides are needed for the
+  18 shipped descriptors.
+- **Budget arithmetic:** renderings/cell = |templates| × |samples|. 9 frames no longer divides
+  P3's 96 evenly — 11 samples ⇒ 99/cell (**10,890 renderings**), 12 ⇒ 108. Both clear
+  `min_cell_n = 60`, and both that and the 96 are P9 placeholders, so nothing is load-bearing yet.
+  Sample count is a P5 decision.
+- **`decoding_key = "greedy_v1"` is a NAME only.** TODO(P5): the resolved decoding config and
+  `decoding_hash` land with the backend.
+- **Manifest now records the lattice** (the provenance hole P3 flagged, closed).
+  `ExperimentConfig.lattice_name` is the only field added; `input_checksums` carries
+  `lattice_config`, `prompt_set_config` and one `template:<id>` per frame. The lattice digest
+  matches what `scripts/build_lattice.py` prints. *Named `lattice_name`, not `lattice`, because
+  `configs/lattice/` is a Hydra config GROUP and a colliding key cannot be overridden at all.*
+- **Open decision #7 is untouched.** `open_gen` never needs a second sequence; `PromptSetConfig`
+  types `task_type` as `Literal["open_gen"]` and the renderer rejects non-`open_gen` items, so the
+  paired path fails to load rather than being half-built. TODO(P4b) markers are in
+  `margins/prompts/render.py`.
+
+### P4a phrase review — all 4 findings resolved (decided 8 Sep 2026)
+
+Full record in `data/prompts/phrase_audit.md` (all 92 order-2 descriptors shown *inside* a rendered
+sentence). **No descriptor was edited** — the levers used were the template frame and
+`compose_rank`. Notes are kept after resolution and their predicates act as **regression guards**:
+a RESOLVED note that matches any cell fails the suite.
+
+| Finding | Decision |
+|---|---|
+| `gender-composed-before-non-gender` (was 12) | **RESOLVED** — lattice **v1.1** |
+| `age-before-status-adjective` (was 12) | **RESOLVED** — same reordering |
+| `marked-register-with-neutral-carrier` (24) | **MITIGATED** — carrier-free frame added |
+| `repeated-morpheme` (1) | **ACCEPTED** — documented, not fixed |
+
+- **Lattice `confirmatory_v1.1@2026-09-08`** reorders `compose_rank` to **class(10) < age(20) <
+  ability(30) < race(40) < gender(50)** — the unique order satisfying all seven declared pairs
+  ("a wealthy young person", "a Black female person"). Values, pairs and sources are **unchanged**;
+  `--verify` re-run green against the pinned HolisticBias file. **Cell ids changed for those two
+  pairs** (`socioeconomic_class=…|age=…`, `race_ethnicity=…|gender_and_sex=…`) and the P3 exports
+  were regenerated. Pre-dates the pre-registration tag, so this is an edit, not an amendment.
+- **Prompt set `open_gen_v1.1@2026-09-08`** adds the carrier-free frame `someone_who_is`.
+  **Two caveats that must not be lost:** (1) it is **1 frame of 9**, so the "a female person"
+  register is reduced, not eliminated — the §9 drift control remains the backstop for the other 8;
+  (2) it required a **second construct choice** — English predicative position rejects juxtaposed
+  adjectives ("someone who is older blind" is broken), so this frame joins constituents with
+  **"and"**, which asserts two co-predicated properties where juxtaposition can read as one
+  compound category. **R1 should report this frame separately.**
+- Side effect worth knowing: the reordering puts gender **last**, i.e. adjacent to the carrier, so
+  the marked register is now adjacent in every gender cell rather than only some.
 
 ### P3 as built (for P4a to consume)
 
@@ -44,7 +113,7 @@ descriptor source** (not a loader), and the two exports. 200 tests; all four gat
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → P3 ✅ → **P4a** (TemplateRenderer) → P5 → P6 → P7 → *then* P2 (CrowS-Pairs) →
+> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → **P5** → P6 → P7 → *then* P2 (CrowS-Pairs) →
 > **P4b** (ExtractiveRenderer) → P8 → P9 → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
@@ -101,6 +170,10 @@ uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
+
+# Regenerate the gitignored artifacts (both byte-deterministic).
+uv run python scripts/build_lattice.py --verify   # data/lattice/  (P3; --verify needs the pinned file)
+uv run python scripts/build_prompts.py            # data/prompts/ + a run manifest (P4a)
 ```
 
 If a dependency won't resolve or a domain is blocked, surface it to the human — never work around

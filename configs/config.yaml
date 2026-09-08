@@ -12,6 +12,14 @@ results_dir: results
 # Fixed recorded constant, not an experimental axis (CLAUDE.md framing constraint 4).
 quant: nf4
 
+# Which identity lattice this run audits. The NAME goes here; the file's sha256 goes into the
+# run manifest's input_checksums (key `lattice_config`), because a name alone would not survive
+# an edit to the file. Added at P4a to close that provenance hole.
+#
+# `lattice_name`, not `lattice`: `configs/lattice/` is a Hydra config GROUP, and a key colliding
+# with a group name cannot be overridden from the command line at all.
+lattice_name: confirmatory_v1
+
 # Open decision #2 -- exact 7-8B repo + pinned revision hash is settled at P5, not before.
 model_id: null
 model_revision: null

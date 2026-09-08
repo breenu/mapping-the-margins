@@ -1,0 +1,32 @@
+# A tiny SYNTHETIC prompt set for tests, paired with tests/fixtures/lattice/tiny.yaml.
+#
+# Only the two clean frames are declared here. The deliberately broken ones
+# (leaky_value, leaky_axis, sentence_initial, no_identity) live in templates/ and are loaded
+# directly by the guard tests -- a config that declared them would fail to render at all, which
+# is the point being tested.
+
+template_version: "tiny@test"
+
+license: "MIT"
+authored_at: "2026-09-08T00:00:00Z"
+task_type: open_gen
+decoding_key: "greedy_test"
+
+description: |
+  Synthetic fixture prompt set. Two frames, one using the composed `identity` variable and one
+  using the `article`/`descriptor`/`carrier` parts, so both interfaces are exercised.
+
+templates:
+  - id: neutral
+    file: neutral.jinja
+    note: "fixture frame using the composed identity variable"
+  - id: parts
+    file: parts.jinja
+    note: "fixture frame using the article/descriptor/carrier parts"
+
+carriers:
+  - noun: person
+    axis_neutral: true
+    note: "fixture carrier; least axis-loaded noun available"
+
+article_overrides: {}

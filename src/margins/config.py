@@ -25,7 +25,7 @@ import platform
 import re
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
@@ -69,6 +69,17 @@ NOT_INSTALLED: Final[str] = "not-installed"
 #: experimental axis (CLAUDE.md framing constraint 4).
 QuantSetting = Literal["nf4", "gguf_q4_k_m", "none"]
 
+#: Manifest ``inputs`` key for the lattice config's sha256. A constant rather than a literal so
+#: the key is greppable and a test asserts the key, not a spelling of it. Added at P4a: before it,
+#: a manifest recorded the experiment config but not WHICH identity lattice produced the prompt
+#: set, so a run could not be traced back to the cell inventory it audited.
+LATTICE_INPUT_KEY: Final[str] = "lattice_config"
+
+#: Default lattice name. Kept as a literal rather than imported from ``margins.lattice.config``:
+#: that module imports ``margins.schemas``, which imports this one, so the import would cycle.
+#: ``tests/test_lattice_in_manifest.py`` pins the two together.
+DEFAULT_LATTICE_NAME: Final[str] = "confirmatory_v1"
+
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -105,6 +116,22 @@ class ExperimentConfig(BaseModel):
             "Fixed, recorded CONSTANT -- deliberately a scalar and never a list. Quantization "
             "is not an experimental axis and not a finding (CLAUDE.md framing constraint 4)."
         ),
+    )
+
+    # Added at P4a, and deliberately the ONLY field added there: a run's manifest must record
+    # which identity lattice produced its prompt set. The name resolves to
+    # `configs/lattice/<name>.yaml`, whose sha256 goes into `write_run_manifest(inputs=...)`
+    # under LATTICE_INPUT_KEY -- the name alone would not survive an edit to the file.
+    #
+    # Named `lattice_name`, not `lattice`, ON PURPOSE: `configs/lattice/` is a directory under the
+    # Hydra config root and is therefore a config GROUP. A key colliding with a group name cannot
+    # be overridden at all -- Hydra rejects `lattice=x` ("no match in the defaults list") and
+    # `++lattice=x` ("force-add of config groups is not supported"), so the field would be frozen
+    # at whatever config.yaml said. The `_name` suffix keeps the two namespaces apart.
+    lattice_name: str = Field(
+        default=DEFAULT_LATTICE_NAME,
+        min_length=1,
+        description="Lattice config name; its sha256 is recorded in the manifest inputs.",
     )
 
     # Open decision #2 (model checkpoint + pinned revision) is not settled until P5, so these
@@ -162,6 +189,38 @@ def config_from_mapping(data: Mapping[str, Any]) -> ExperimentConfig:
     is the cheap side of the Hydra/Pydantic friction.
     """
     return ExperimentConfig.model_validate(dict(data))
+
+
+def default_config_dir() -> Path:
+    """``<repo>/configs``. Override it for tests or an installed package."""
+    return Path(__file__).resolve().parents[2] / "configs"
+
+
+def load_experiment_config(
+    name: str = "config",
+    *,
+    config_dir: Path | None = None,
+    overrides: Sequence[str] = (),
+) -> ExperimentConfig:
+    """Compose ``<config_dir>/<name>.yaml`` with Hydra and validate it.
+
+    The same seam as :func:`margins.lattice.config.load_lattice_config`, hoisted here so a script
+    that needs to write a manifest does not have to re-implement the Hydra composition (and get
+    the override syntax subtly different).
+    """
+    from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
+
+    directory = (config_dir or default_config_dir()).resolve()
+    if not directory.is_dir():
+        raise FileNotFoundError(f"config dir does not exist: {directory}")
+
+    with initialize_config_dir(version_base=None, config_dir=str(directory)):
+        composed = compose(config_name=name, overrides=list(overrides))
+    data = OmegaConf.to_container(composed, resolve=True)
+    if not isinstance(data, dict):
+        raise TypeError(f"composed config {name!r} is not a mapping, got {type(data)!r}")
+    return config_from_mapping({str(key): value for key, value in data.items()})
 
 
 def _package_versions() -> dict[str, str]:

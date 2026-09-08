@@ -11,7 +11,17 @@
 # `scripts/build_lattice.py --verify` checks every (source_axis, source_bucket, source_term,
 # preference) tuple against the pinned file.
 
-lattice_version: "confirmatory_v1@2026-09-08"
+# VERSION HISTORY
+#   confirmatory_v1@2026-09-08    initial lattice (P3)
+#   confirmatory_v1.1@2026-09-08  compose_rank reordered toward native English adjective order,
+#                                 approved from the P4a phrase review (findings
+#                                 `gender-composed-before-non-gender` and
+#                                 `age-before-status-adjective`). Values, pairs and sources are
+#                                 UNCHANGED -- this touches ordering only. It nevertheless changes
+#                                 cell_ids for the two affected pairs, hence the bump.
+#                                 Pre-dates the pre-registration tag, so it is an edit, not an
+#                                 amendment.
+lattice_version: "confirmatory_v1.1@2026-09-08"
 
 description: |
   Five identity axes, three to four descriptor terms each, drawn from HolisticBias v1.1.
@@ -55,14 +65,28 @@ sources:
     retrieved_at: "2026-09-08T00:00:00Z"
 
 # `compose_rank` fixes the canonical axis order used for cell ids, axis pairs, and descriptor
-# composition. The ranks below were chosen so that every DECLARED pair composes into a fluent
-# English phrase ("older blind", "working-class Black", "blind female", "older working-class").
-# That is a construct choice, not a neutral one — see margins.lattice.build's module docstring.
+# composition. That is a construct choice, not a neutral one — see margins.lattice.build's module
+# docstring.
+#
+# ORDER (v1.1): class(10) < age(20) < ability(30) < race(40) < gender(50). It follows English
+# adjective order — quality/status, then age, then classifying adjectives, with the most
+# noun-like classifiers nearest the carrier noun — and it is the unique ordering satisfying all
+# seven declared pairs simultaneously:
+#
+#   class x race    -> "working-class Black"    class x age  -> "wealthy young"     (v1.1 fix)
+#   age x ability   -> "older blind"            race x gender-> "Black female"      (v1.1 fix)
+#   ability x race  -> "blind Black"            ability x gender -> "blind female"
+#   age x race      -> "older Black"
+#
+# v1.0 had age(10) < class(20) and gender(40) < race(50), which produced "a young wealthy person"
+# and "a female Black person". Both read as non-native, and a phrasing that is stilted for one
+# pair and fluent for the others contributes to THAT PAIR'S INTERACTION — which is the estimand.
+# See data/prompts/phrase_audit.md.
 axes:
   age:
     label: "age"
     gender_anchored: false
-    compose_rank: 10
+    compose_rank: 20
     source: holistic_bias_v1_1
     source_axis: age
     note: >-
@@ -76,7 +100,7 @@ axes:
   socioeconomic_class:
     label: "socioeconomic class"
     gender_anchored: false
-    compose_rank: 20
+    compose_rank: 10
     source: holistic_bias_v1_1
     source_axis: socioeconomic_class
     note: >-
@@ -108,7 +132,7 @@ axes:
   gender_and_sex:
     label: "gender and sex"
     gender_anchored: true
-    compose_rank: 40
+    compose_rank: 50
     source: holistic_bias_v1_1
     source_axis: gender_and_sex
     note: >-
@@ -124,7 +148,7 @@ axes:
   race_ethnicity:
     label: "race / ethnicity"
     gender_anchored: false
-    compose_rank: 50
+    compose_rank: 40
     source: holistic_bias_v1_1
     source_axis: race_ethnicity
     note: >-

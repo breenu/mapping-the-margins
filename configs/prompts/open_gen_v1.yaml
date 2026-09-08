@@ -1,0 +1,183 @@
+# Confirmatory open_gen prompt set (P4a).
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.prompts.config validates it
+# into a PromptSetConfig. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# This file plus configs/prompts/templates/*.jinja plus configs/lattice/<name>.yaml fully
+# determine the prompt set. All three are checksummed into every run manifest, so a prompt file
+# can be traced back to exactly the frames and the lattice that produced it.
+#
+# `template_version` is stamped on EVERY Prompt. Bump it on any change to a frame, the carrier
+# set, or the article rule.
+
+# VERSION HISTORY
+#   open_gen_v1@2026-09-08    initial 8-frame set (P4a)
+#   open_gen_v1.1@2026-09-08  added the CARRIER-FREE frame `someone_who_is`, approved from the
+#                             P4a phrase review (finding `marked-register-with-neutral-carrier`).
+#                             Also re-rendered against lattice confirmatory_v1.1, whose
+#                             compose_rank reordering changes cell_ids for two pairs.
+template_version: "open_gen_v1.1@2026-09-08"
+
+license: "MIT"
+
+# Recorded, never clock-read: template provenance has to be deterministic or the prompt file is
+# not byte-reproducible.
+authored_at: "2026-09-08T00:00:00Z"
+
+# P4a renders open_gen ONLY. Typed as a Literal in the schema, so a paired-task prompt set does
+# not merely fail review, it fails to load. Open decision #7 (the paired-task prompt
+# representation) is untouched and must be settled before the CrowS-Pairs loader / P4b.
+task_type: open_gen
+
+# TODO(P5): names a decoding profile; the resolved decoding config and its `decoding_hash` land
+# with the inference backend. P4a only stamps the name.
+decoding_key: "greedy_v1"
+
+description: |
+  Eight neutral elicitation frames, one axis-neutral carrier noun.
+
+  FRAME SELECTION RULE, applied to every template and recorded so it can be criticised:
+
+  1. NEUTRAL ELICITATION ONLY. No frame names an occupation, a role relation, a scenario with
+     valence, or an implied problem. A frame like "Why did the {descriptor} {carrier} lose their
+     job?" measures the frame, not the identity.
+  2. NO IDENTITY CUE IN THE FRAME. Identity appears only in the injected slot. Enforced at render
+     time against both the lattice's value vocabulary and its axis vocabulary ("race", "gender",
+     "disability", ...), not left to review.
+  3. IDENTITY IS NEVER SENTENCE-INITIAL. A sentence-initial slot would need capitalising, and
+     upstream orthography is load-bearing here ("Black", "Deaf"): a capitalisation pass would
+     silently rewrite pinned P3 descriptors. Enforced by a validator.
+  4. FRAME DIVERSITY IS DELIBERATE. Eight frames spanning narrative, description, biography,
+     attribute listing, advice, encounter and completion. This is what R1 (prompt-paraphrase
+     robustness) is estimated over: a single frame would confound "the model's bias" with "this
+     frame's bias".
+  5. TWO FRAMES USE THE PARTS (`article`/`descriptor`/`carrier`) rather than the composed
+     `identity` variable, so both interfaces stay exercised and neither silently rots.
+  6. ONE FRAME IS CARRIER-FREE (`someone_who_is`, added v1.1). It is the construct fix for the
+     marked-register finding, and it is the only frame whose gender cells avoid "a female
+     person". COVERAGE CAVEAT, stated plainly: it is 1 frame of 9, so it removes the register
+     artifact from roughly a ninth of renderings rather than eliminating it. The scorer
+     identity-drift control (§9) remains the backstop for the other eight.
+
+  BUDGET ARITHMETIC. 9 frames x 110 cells x 1 carrier = 990 unique prompts. The lattice projects
+  96 renderings per cell and renderings = |frames| x |samples per prompt|, so 9 frames no longer
+  divides that figure evenly: 11 samples gives 99 per cell (990 x 11 = 10,890 renderings), 12
+  gives 108. Either clears the pre-registered `min_cell_n` of 60 comfortably, and both `min_cell_n`
+  and the 96 estimate are PLACEHOLDERS pending the P9 power analysis, so nothing here is
+  load-bearing yet. The sample count is a P5 decision; the W2 Kaggle timing pilot turns it into a
+  budget.
+
+  CARRIER NOUN. See the `carriers` block below. This is the construct choice P3 deliberately
+  deferred to P4a, and the one most likely to be challenged.
+
+templates:
+  - id: short_story
+    file: short_story.jinja
+    note: >-
+      Open narrative generation. The workhorse frame for the main audit: least constrained, so
+      it gives stereotype content the most room to surface.
+
+  - id: describe
+    file: describe.jinja
+    note: >-
+      Direct description. Elicits attribute assignment with no narrative scaffolding, which is
+      the closest generative analogue to an association test.
+
+  - id: daily_life
+    file: daily_life.jinja
+    note: >-
+      Routine/activity generation. Surfaces assumptions about work, mobility and household that
+      a story frame may leave implicit. Uses the article/descriptor/carrier parts directly.
+
+  - id: biography
+    file: biography.jinja
+    note: >-
+      Biographical register. Elicits life-course assumptions (education, family, trajectory)
+      without naming any of them in the frame.
+
+  - id: three_words
+    file: three_words.jinja
+    note: >-
+      Constrained attribute listing. The most directly scorable frame — short, comparable across
+      cells, and the least dependent on generation length.
+
+  - id: advice
+    file: advice.jinja
+    note: >-
+      Second-person advice. NOTE, as a construct caveat: "advice" can presuppose that something
+      needs solving, so this frame is mildly less neutral than the others. Kept because it is
+      standard in this literature and because R1 estimates frame sensitivity explicitly.
+
+  - id: first_meeting
+    file: first_meeting.jinja
+    note: >-
+      Encounter framing. Elicits the model's default expectations about a person before any
+      other information, which is where first-impression stereotype content lives.
+
+  - id: sentence_completion
+    file: sentence_completion.jinja
+    note: >-
+      Continuation from a neutral first-person clause. The closest generative frame to the
+      extractive paradigm, which makes it the natural anchor for the RQ1 cross-paradigm
+      comparison. Uses the article/descriptor/carrier parts directly.
+
+  - id: someone_who_is
+    file: someone_who_is.jinja
+    note: >-
+      CARRIER-FREE frame, added at v1.1 as the construct fix for the marked-register finding: it
+      uses no carrier noun at all, so it cannot produce "a female person". It is the only frame
+      whose gender cells are free of that register artifact. NOTE the two construct choices it
+      makes, both deliberate and both distinct from the other eight frames: (1) the descriptor
+      sits in PREDICATIVE position (after a copula) rather than attributive; (2) constituents are
+      therefore joined by "and" rather than juxtaposed, because English predicative position
+      rejects stacked adjectives — "someone who is older blind" is broken where "an older blind
+      person" is fine. A conjunction asserts two co-predicated properties where juxtaposition can
+      read as one compound category, so this frame encodes a slightly different relation between
+      the two identities. That difference is the point of having it, and it is why R1's
+      prompt-paraphrase analysis should report this frame separately.
+
+# CARRIER NOUN — a CONSTRUCT CHOICE, and the one P3 deferred to here on purpose.
+#
+# P3's compose_descriptor emits a bare modifier phrase ("working-class Black", "older blind") and
+# attaches NO carrier noun, because a carrier is a design decision whose audit trail belongs in
+# the template layer. Exactly one carrier is declared:
+#
+#   * `person` is the least axis-loaded noun available. It is NOT neutral in an absolute sense —
+#     nothing is — and that weaker claim is the one made.
+#   * Every obvious alternative IS an identity axis. `man`/`woman` carry gender, which would
+#     confound the gender_and_sex axis AND silently gender every non-gender cell; `kid`/`teen`/
+#     `elder` carry age; `patient`/`client` carry a role relation.
+#   * An OCCUPATIONAL carrier (`nurse`, `engineer`, `cleaner`) carries dense class, gender and
+#     race stereotype content of its own. Using one would add an UNDECLARED SECOND AXIS OF
+#     VARIATION to every cell, and the interaction estimate would no longer mean "harm varies
+#     non-additively across identity cells" but "...crossed with an occupation we never
+#     pre-registered". The schema refuses a non-neutral carrier that does not name the axis it
+#     introduces, so such a carrier can only ever enter declared.
+#   * Carriers multiply the prompt set (|frames| x |cells| x |carriers|) and spend the per-cell
+#     rendering budget the lattice already allocated. The cap is 3; the confirmatory set uses 1.
+#
+# KNOWN ISSUE, surfaced by the P4a phrase review — MITIGATED at v1.1, not eliminated.
+# HolisticBias gender terms are adjectival ("female", "male"), so this carrier produces "a female
+# person" — a marked clinical register in English, unlike "a woman". The approved fix was to ADD
+# the carrier-free `someone_who_is` frame, which uses no carrier noun at all. That covers 1 frame
+# of 9; the other eight still produce the marked register on the 24 gender-containing order-2
+# cells, with the §9 scorer identity-drift control as backstop. Note also that the v1.1
+# compose_rank reordering puts gender LAST, i.e. immediately before the carrier noun, so the
+# register artifact is now adjacent in every gender cell rather than only some.
+# See `marked-register-with-neutral-carrier` in data/prompts/phrase_audit.md.
+carriers:
+  - noun: person
+    axis_neutral: true
+    note: >-
+      Least axis-loaded carrier available. Chosen over man/woman (gender), kid/elder (age) and
+      every occupational noun (class/gender/race stereotype content), each of which would add an
+      undeclared second axis of variation to every cell.
+
+# The article is a TEMPLATE-FRAME concern, never a descriptor edit: "a older blind person" is
+# broken English, and a model reacts to broken English. The default rule is the vowel-LETTER rule,
+# which is correct for all 18 shipped descriptors ("an older", "an autistic", "an Asian", "a
+# working-class"). English actually follows the vowel-SOUND, so the renderer REFUSES to guess on
+# `eu-`, `u-`, `one-`, `hon-` and demands an explicit entry here instead. Empty is correct for
+# this lattice; a future descriptor starting one of those ways will fail loudly rather than emit
+# broken English.
+article_overrides: {}
