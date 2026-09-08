@@ -1,0 +1,39 @@
+# The decoding profile P4a already stamps on every Prompt (`decoding_key: greedy_v1`). P4a named
+# it and left a TODO(P5) for the resolved config; this file IS that resolution, and its sha256 goes
+# into every run manifest under `decoding_config`.
+#
+# Plain YAML -> dict -> validated DecodingConfig (PROJECT_CONTEXT.md §6). The backend refuses to run
+# a prompt whose `decoding_key` does not equal `key` below, so the name and the profile cannot
+# drift apart.
+
+key: greedy_v1
+
+description: >-
+  Deterministic greedy decoding. The reference profile for the main audit: same seed, same thread
+  count, same batch size -> identical token sequences on CPU (CLAUDE.md invariant 5). Nothing here
+  is sampled, so seeds do not vary the output -- a sampled companion profile is what varies it.
+
+# CONSTRUCT CHOICE. The pinned checkpoints are instruct-tuned and the P4a prompts are instructions,
+# so each prompt is wrapped in the checkpoint's own chat template as a single user turn with NO
+# system message. See margins.inference.decoding.PromptFormat for the full rationale and its cost.
+prompt_format: chat
+
+# Llama's stock chat template injects a LIVE "Today Date" header. Left alone, the same prompt would
+# render differently every day and the run would not be reproducible. Pinned here, passed to the
+# template as `date_string`, and VERIFIED at render time: the backend raises if any other date
+# appears in the wrapped text.
+pinned_chat_date: "08 Sep 2026"
+
+max_input_tokens: 512
+
+# Required and never defaulted. do_sample=False with a non-zero temperature would be silently
+# ignored by transformers and would put a temperature in the Response that the run never used;
+# the validator rejects that combination outright.
+do_sample: false
+temperature: 0.0
+
+max_new_tokens: 256
+
+# 1.0 = no penalty. Recorded explicitly rather than left to the checkpoint's bundled
+# generation_config, which several instruct models ship with non-neutral values.
+repetition_penalty: 1.0

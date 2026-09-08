@@ -411,7 +411,15 @@ for inference.** The 7–8B sweep never runs locally.
 
 - **Windows laptop (`win_amd64`):** everything EXCEPT the 7–8B generative sweep and red-team
   generation — i.e. dev, schemas, lattice, prompts, scoring on cached outputs, metrics, stats, viz,
-  paper. Installs **core + dev extras only**; no `torch`, no `bitsandbytes`.
+  paper. The default `uv sync` installs **core + dev extras only**; no `torch`, no `bitsandbytes`.
+  - **P5 amendment (9 Sep 2026).** The `inference` extra is now *installable* on `win_amd64`:
+    `torch`/`transformers`/`accelerate`/`huggingface-hub` carry no platform marker, while
+    `bitsandbytes` (and `datasets`/`evaluate`/`detoxify`) stay Linux-gated. This is what lets the
+    P5 determinism, sequence-logprob and resumability gates run locally against the **~1B dev
+    model**, and lets `scripts/pin_models.py` resolve a revision from the dev box. **Installable is
+    not installed**: the default sync is unchanged, NF4 remains a CUDA/Linux path (a Windows load
+    falls back to unquantized and records that it did), and **the 7–8B sweep still never runs
+    locally**.
 - **Kaggle (`linux_x86_64`), free tier:** the generative sweep (P5) and red-team generation (P8),
   with the `inference` extra and `bitsandbytes` NF4. ~30 GPU-h/week, 12-h sessions, persistent
   datasets, batched and **resumable** harness. **Colab is the debugging backup.**
@@ -448,8 +456,11 @@ Free GitHub Actions has **no GPU**; say so in the docs rather than implying CI c
 - **Core job** — every push: `uv sync` (core + dev), `pytest`, `ruff check`, `ruff format --check`,
   `mypy src`. No `torch`.
 - **CPU inference job** — nightly or on-label: `uv sync --extra inference` (CPU torch) and the P5
-  determinism tests against a tiny random Llama checkpoint (e.g.
-  `hf-internal-testing/tiny-random-LlamaForCausalLM` — **verify availability at P5**).
+  determinism, sequence-logprob and resumability tests against a tiny random Llama checkpoint,
+  `hf-internal-testing/tiny-random-LlamaForCausalLM` — **availability verified 9 Sep 2026**, pinned
+  at `9fb191250dd56d0ba7ec9785a025ed29c03d5998` in `configs/model/tiny_random_llama.yaml`. It is
+  ungated, which matters: the job has no HF token and cannot reach the gated Meta pins. `OMP_NUM_
+  THREADS` is pinned in the job, because the determinism claim holds at a *fixed* thread count.
 
 ---
 

@@ -1,0 +1,20 @@
+# Confirmatory model 2 of 2 (open decision #2, resolved 9 Sep 2026).
+#
+# `revision` is RESOLVED by `scripts/pin_models.py`, never hand-authored. See the sibling
+# llama31_8b_instruct.yaml for the full rationale.
+
+model_id: mistralai/Mistral-7B-Instruct-v0.3
+revision: c170c708c41dac9275d15a8fff4eca08d52bab71
+license: apache-2.0
+role: confirmatory
+family: mistral
+
+# Ungated: downloadable without an accepted licence. Recorded either way.
+gated: false
+
+note: >-
+  The second confirmatory checkpoint, from a different family to the Llama pin. Instruct-tuned for
+  the same construct reason. NOTE that its chat template differs from Llama's, so the same P4a
+  prompt reaches the two models inside different wrappers -- that difference is real, is part of
+  what each model was asked, and is why the applied template's sha256 is recorded per model in the
+  run manifest rather than assumed equal.

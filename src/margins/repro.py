@@ -178,12 +178,16 @@ def residual_nondeterminism_note() -> str:
     """
     return (
         "Determinism scope. Same-seed greedy decoding produces identical token sequences "
-        "on CPU at a fixed thread count, with the torch version and BLAS backend recorded "
-        "in this manifest. Log-probabilities match to a documented tolerance rather than "
+        "on CPU at a fixed thread count AND a fixed batch size, with the torch version and "
+        "BLAS backend recorded in this manifest. Batch size is load-bearing here: padding a "
+        "batch changes floating-point reduction order, so the same prompt run alone and run "
+        "inside a batch may diverge -- the batch size used is recorded in this manifest's "
+        "inference block. Log-probabilities match to a documented tolerance rather than "
         "bit-exactly. On GPU the guarantee is metric-level only, within a reported "
         "tolerance: kernel selection, atomic reduction order, and cuBLAS workspace reuse are "
-        "not fully controllable. Changing thread count, BLAS backend, torch version, or "
-        "hardware invalidates bit-level comparison. No unconditional bit-identity is claimed."
+        "not fully controllable. Changing thread count, batch size, BLAS backend, torch "
+        "version, or hardware invalidates bit-level comparison. No unconditional bit-identity "
+        "is claimed."
     )
 
 

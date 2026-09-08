@@ -38,6 +38,11 @@ REQUIRED_FIELDS = {
     "determinism_note",
     "input_checksums",
     "quant",
+    # Added at P5, deliberately: `quant` is the INTENDED constant and `environment` is the machine,
+    # but neither says what the model load resolved to. A Windows dev run falls back from NF4 to
+    # unquantized, and a manifest where that is indistinguishable from a real NF4 run makes the
+    # recorded constant worthless. None for runs that load no model.
+    "inference",
 }
 
 FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)

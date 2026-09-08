@@ -1,0 +1,25 @@
+# Confirmatory model 1 of 2 (open decision #2, resolved 9 Sep 2026).
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.inference.models validates it
+# into a ModelSpec. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# `revision` is RESOLVED, NEVER AUTHORED. It was produced by `scripts/pin_models.py --write`, which
+# reads the repo head through huggingface_hub. Re-verify with `scripts/pin_models.py` (default
+# --verify); if upstream has moved, that is a deliberate re-pin with a logged rationale, not a
+# silent update. Every Response and every run manifest carries this sha.
+
+model_id: meta-llama/Llama-3.1-8B-Instruct
+revision: 0e9e39f249a16976918f6564b8830bc894c89659
+license: llama3.1
+role: confirmatory
+family: llama
+
+# Requires an accepted Meta licence on the Hugging Face account before download. Recorded so a
+# reproducer is told up front rather than hitting a 401 mid-sweep.
+gated: true
+
+note: >-
+  Instruct-tuned by CONSTRUCT CHOICE, not by default: the P4a prompts are instructions, and a base
+  checkpoint tends to continue an instruction as text rather than perform it, which would make the
+  harm signal a measurement of off-task drift. Runs at 4-bit NF4 on a free-tier Kaggle T4; never
+  runs on the Windows dev box (PROJECT_CONTEXT.md §7).

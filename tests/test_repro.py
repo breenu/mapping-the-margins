@@ -155,6 +155,9 @@ def test_residual_nondeterminism_note_cannot_be_silently_weakened() -> None:
         "identical token sequences",
         "cpu",
         "thread count",
+        # Added at P5: batching pads, padding changes reduction order, so the claim is only true
+        # at a fixed batch size. Dropping this qualifier would overstate what the harness delivers.
+        "batch size",
         "tolerance",
         "metric-level",
         "gpu",

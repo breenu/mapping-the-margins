@@ -1,0 +1,20 @@
+# CI checkpoint. PROJECT_CONTEXT.md §7 named this model with "verify availability at P5";
+# availability was verified on 9 Sep 2026 and the head sha resolved below.
+#
+# Randomly initialised and a few megabytes: it produces meaningless text, which is exactly right
+# for what it is used for. The determinism, resumability and log-prob gates test the HARNESS, not
+# the model, and the nightly CI job has no HF token and therefore cannot reach a gated repo.
+
+model_id: hf-internal-testing/tiny-random-LlamaForCausalLM
+revision: 9fb191250dd56d0ba7ec9785a025ed29c03d5998
+license: unknown
+role: ci
+family: llama
+
+gated: false
+
+note: >-
+  Tiny randomly-initialised Llama used by the nightly inference CI job. Carries NO chat template,
+  so it is exercised with prompt_format=raw. Its outputs are meaningless by construction and must
+  never appear in a result; it exists to prove the harness is deterministic and resumable on a
+  machine with no GPU and no model access.

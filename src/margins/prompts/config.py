@@ -206,8 +206,10 @@ class PromptSetConfig(BaseModel):
     decoding_key: str = Field(
         min_length=1,
         description=(
-            "Named decoding profile stamped on every Prompt. TODO(P5): the resolved decoding "
-            "config and its `decoding_hash` land with the inference backend; P4a only names it."
+            "Named decoding profile stamped on every Prompt. P4a only NAMES it; the resolved "
+            "config and its `decoding_hash` landed at P5 in `configs/decoding/<key>.yaml` and "
+            "`margins.inference.decoding`. The backend refuses a prompt whose key does not match "
+            "the profile it holds, so the two cannot drift apart."
         ),
     )
     templates: tuple[TemplateSpec, ...]

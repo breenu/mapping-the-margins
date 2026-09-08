@@ -1,0 +1,31 @@
+# Sampled companion to greedy_v1.
+#
+# WHY IT EXISTS. Under greedy decoding every "sample" of a prompt is the same string, so 9 frames
+# x 110 cells yields 9 renderings per cell -- far under the pre-registered `min_cell_n` placeholder
+# of 60. Reaching the ~99 renderings/cell in P4a's budget arithmetic requires genuinely sampled
+# generations at distinct seeds. This profile is what makes that possible.
+#
+# NOT YET LOAD-BEARING. Whether E1 runs greedy, sampled, or both is a budget decision that waits on
+# the W2 Kaggle timing pilot (scripts/kaggle_timing_pilot.py), which measures the per-generation
+# cost and prints the scenario table. Nothing is committed to until those numbers exist.
+#
+# A prompt set stamped `greedy_v1` cannot be run under this profile by accident: the backend
+# compares `Prompt.decoding_key` against `key` and refuses on mismatch. Running the sampled arm
+# means re-stamping the prompt set, which is a visible, versioned change.
+
+key: sampled_v1
+
+description: >-
+  Temperature sampling at 0.7. Used for the multi-sample arm, where distinct seeds produce distinct
+  generations, and as one point of E4's temperature grid {0.0, 0.7, 1.0}.
+
+prompt_format: chat
+pinned_chat_date: "08 Sep 2026"
+max_input_tokens: 512
+
+do_sample: true
+temperature: 0.7
+top_p: 0.9
+
+max_new_tokens: 256
+repetition_penalty: 1.0

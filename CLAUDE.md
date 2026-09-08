@@ -8,19 +8,101 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ complete.** P0: environment, `margins.repro`, `margins.config` +
-run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols),
-walking skeleton, and the schema field-freeze test. P3: `margins.lattice` — `LatticeConfig`
-(`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a **pinned
-descriptor source** (not a loader), and the two exports. P4a: `margins.prompts` —
+**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ complete.** P0: environment, `margins.repro`,
+`margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces`
+(Protocols), walking skeleton, and the schema field-freeze test. P3: `margins.lattice` —
+`LatticeConfig` (`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a
+**pinned descriptor source** (not a loader), and the two exports. P4a: `margins.prompts` —
 `TemplateRenderer`, 9 versioned Jinja frames, the leakage guard, and the phrase review (all 4
-findings resolved; lattice bumped to **v1.1**). 279 tests; all four gates green on `win_amd64` and
-in CI on both locked environments.
+findings resolved; lattice bumped to **v1.1**). P5: `margins.inference` — `DecodingConfig` +
+`decoding_hash`, the pinned `ModelSpec`s (decision #2 closed), `HFBackend`, and the resumable
+`RunHarness`. All four gates green on `win_amd64` and in CI on both locked environments.
 
-**NEXT TASK: P5 — model inference.** Not yet started. **Blocked on open decision #2** (exact 7–8B
-repo + pinned revision hash + license, plus the ~1B dev model) — settle it before writing the
-backend. Also due in W2: the **Kaggle timing pilot**, which converts the 880-prompt set into a
-measured GPU-h budget.
+**NEXT TASK: P6 — scoring, triangulation, and the scorer identity-drift control.** Not started.
+
+**⚠ THE KAGGLE TIMING PILOT IS OUTSTANDING AND IS THE HUMAN'S TO RUN.** `scripts/kaggle_timing_pilot.py`
+/ `notebooks/kaggle_timing_pilot.ipynb` are built, self-contained and tested, but **no timing number
+exists yet** — Claude Code cannot reach Kaggle and must never fabricate one. Its output is the input
+to **hard go/no-go criterion 4** (Sep 28–29) and to the E1 grid decision (greedy vs sampled), both of
+which are due before P6's results matter. Run it, bring back `pilot_results.json`, and record the
+numbers here.
+
+### P5 as built (for P6 to consume)
+
+- **Pinned checkpoints** in `configs/model/*.yaml`, revisions **resolved via `huggingface_hub`, never
+  authored**. `scripts/pin_models.py` is both how they got there (`--write`) and how a reproducer
+  checks them (default `--verify`); on a 404 or gated-without-access it **stops** and refuses to
+  substitute. `ModelSpec.revision` rejects a branch name — `main` moves and nothing we record would
+  change. Ids/shas/licences are in decision #2 below and pinned by `tests/test_model_config.py`.
+- **`decoding_key` finally has something behind it.** `configs/decoding/greedy_v1.yaml` is the
+  profile P4a stamps; `decoding_hash` = sha256 of the canonical JSON dump, on every `Response`.
+  **`temperature` is a required field with no default**, and a profile that is neither cleanly greedy
+  (`do_sample=False`, temp exactly 0, no `top_p`/`top_k`) nor cleanly sampled fails to load —
+  transformers would silently ignore a temperature under greedy and the `Response` would record one
+  nothing used. The backend refuses a prompt whose `decoding_key` ≠ the profile it holds.
+- **`prompt_format = "chat"` is a CONSTRUCT CHOICE** (native template, one user turn, no system
+  message): the prompts are instructions and the pins are instruct-tuned. The cost is that the two
+  families wrap a prompt differently, so the **chat-template sha256 is recorded per model** in the
+  manifest (`chat_template:<model>`), not assumed equal. `pinned_chat_date` + a render-time guard
+  exist because Llama's template injects a live "Today Date" — unpinned, the same prompt would
+  render differently tomorrow.
+- **`quant` on a `Response` is what ACTUALLY happened, never the intended constant.** NF4 needs
+  bitsandbytes + CUDA; a Windows dev load falls back to unquantized and records `quant_actual="none"`
+  plus the reason. The manifest's new `inference` block carries requested-vs-actual side by side.
+- **Resumable harness contract, asserted not commented:** work unit = `(prompt, seed)`, with a
+  content-addressed `response_id` computed **before** the work runs. Output
+  `data/responses/<model>/<run_id>.jsonl`, `run_id` from the manifest (never random-per-call);
+  flush+fsync per batch; a **truncated final line is repaired** (the normal state of a killed
+  session) while a *complete* invalid line **raises** (corruption ≠ interruption); the planned id set
+  must be a subset of the file's at the end, and a file holding work outside the plan is refused.
+- **Distinct samples come from distinct SEEDS.** The backend re-seeds per batch so a resumed run
+  reaches every batch with the RNG state an uninterrupted one would have — which means two calls at
+  one seed return identical text, so `plan()` rejects repeated seeds. Batches never straddle a seed.
+- **Determinism is now scoped to batch size too.** Padding changes reduction order, so
+  `residual_nondeterminism_note()` gained a batch-size clause and the manifest records `batch_size`.
+- **Open decision #7 is still open, by construction.** `run()` **refuses** `pair_pll` and names it;
+  `HFBackend.score_pair()` builds decision #6's shape (one `Response`, both sequence log-probs) but
+  takes both strings from its caller rather than encoding a representation. Settle #7 at P2/P4b.
+- **`schemas.py` was NOT touched** — `Response` already had every field P5 needed.
+- **`margins.inference` imports with no torch installed** (lazy imports, as `repro` does), so
+  `mypy src` and the core suite still run on the core environment.
+- **The checkpoint's bundled `generation_config` is neutralized at load.** Llama-3.2-1B-Instruct
+  ships `temperature=0.6, top_p=0.9`; greedy ignores them, but a future sampled profile that did not
+  name a `top_p` would inherit 0.9 **silently and unrecorded** — it never came from our config, so it
+  would appear in no `decoding_hash`. `DecodingConfig` is now the sole authority on token choice.
+- **Environment split, amended (`docs/PROJECT_CONTEXT.md` §7).** `torch`/`transformers`/`accelerate`/
+  `huggingface-hub` are no longer Linux-gated, so `uv sync --extra inference` works on `win_amd64`
+  and the gates really do run locally against the 1B. `bitsandbytes` (+ `datasets`/`evaluate`/
+  `detoxify`) stay Linux-only; **the 7–8B sweep still never runs locally**. Default `uv sync` is
+  unchanged. `huggingface-hub` moved from core deps into the `inference` extra; `uv.lock` regenerated
+  and still resolves for exactly the two environments.
+- **`mypy src` no longer depends on which extras are installed.** With `ignore_missing_imports`
+  alone, the check passed on the core env (packages absent ⇒ `Any`) and failed on the inference env
+  (partial stubs ⇒ `no-untyped-call`). `follow_imports = "skip"` on the inference stack makes both
+  cases identical. A gate whose result depends on the environment is not a gate.
+
+### The Kaggle timing pilot — BUILT, NOT RUN (the human's to execute)
+
+`scripts/kaggle_timing_pilot.py` + the generated `notebooks/kaggle_timing_pilot.ipynb`. **No timing
+number exists yet and none may be invented.**
+
+- **Self-contained.** Imports nothing from `margins` (Kaggle has no checkout, and `data/` is
+  gitignored so the prompt file is absent there). Its 50 prompts, the two model pins and the decoding
+  profile are **generated into the file** by `scripts/build_pilot_sample.py` from the same configs
+  the pipeline uses; `tests/test_kaggle_pilot.py` fails if any of it drifts, and separately asserts
+  each embedded prompt still renders identically. They are the real P4a prompts, sampled by the same
+  deterministic, group-stratified sampler the P4a slot audit uses.
+- **To run:** GPU T4 ×2, Internet On, `HF_TOKEN` secret attached (the account must have accepted the
+  Meta licence), Run All. ~20–40 min, mostly weight downloads. `--models llama31_8b_instruct` halves
+  it. Bring back `pilot_results.json`.
+- **It measures** sec/prompt, tokens/sec, mean/median generated tokens, peak VRAM and load time per
+  model, then prints a **scenario table** — greedy E1 (990×2×1), sampled E1 (990×2×11 @ 0.7, the
+  99-renderings/cell arithmetic), E4 subset (3 temps × 3 seeds × 10%) — in GPU-h and % of ~30
+  GPU-h/week, with every assumption printed above the numbers. **It refuses to extrapolate without
+  CUDA**: a CPU timing presented as a GPU budget would be a fabricated number.
+- **What it feeds:** hard go/no-go criterion 4 (Sep 28–29) and the **E1 grid decision** — greedy
+  gives only 9 renderings/cell against `min_cell_n = 60`, so the sampled arm is what the power
+  bookkeeping actually needs, at roughly 11× the cost. Red-teaming (P8) is **not** in the table.
 
 ### P4a as built (for P5 to consume)
 
@@ -44,8 +126,10 @@ measured GPU-h budget.
   P3's 96 evenly — 11 samples ⇒ 99/cell (**10,890 renderings**), 12 ⇒ 108. Both clear
   `min_cell_n = 60`, and both that and the 96 are P9 placeholders, so nothing is load-bearing yet.
   Sample count is a P5 decision.
-- **`decoding_key = "greedy_v1"` is a NAME only.** TODO(P5): the resolved decoding config and
-  `decoding_hash` land with the backend.
+- ~~**`decoding_key = "greedy_v1"` is a NAME only.**~~ **Resolved at P5:**
+  `configs/decoding/greedy_v1.yaml` + `DecodingConfig.decoding_hash`. Editing that file changes the
+  prompt-set config's sha256 but **not** `prompt_id` (which digests the rendered text, not the
+  profile) — it changes every `response_id` instead, which is the right blast radius.
 - **Manifest now records the lattice** (the provenance hole P3 flagged, closed).
   `ExperimentConfig.lattice_name` is the only field added; `input_checksums` carries
   `lattice_config`, `prompt_set_config` and one `template:<id>` per frame. The lattice digest
@@ -161,9 +245,17 @@ claim-survival table in §1.
 ```bash
 # uv is the dependency manager; Python 3.11. (P0 creates pyproject.toml + uv.lock.)
 uv sync                      # core deps (no GPU stack) — this is the Windows dev environment
-uv sync --extra inference    # transformers, torch, bitsandbytes, datasets, evaluate, detoxify (Linux/Kaggle)
+uv sync --extra inference    # torch, transformers, accelerate, huggingface-hub (BOTH environments)
+                             #   + bitsandbytes, datasets, evaluate, detoxify (Linux/Kaggle only)
 uv sync --extra llamacpp     # pure-CPU / Apple fallback backend
 uv sync --extra dev          # pytest, ruff, mypy, pre-commit
+
+# P5 (needs --extra inference). NF4 is Linux/CUDA; a Windows load falls back and RECORDS that.
+uv run python scripts/pin_models.py                       # verify every pinned revision upstream
+uv run python scripts/run_inference.py --model llama32_1b_instruct --limit 20   # local smoke
+uv run python scripts/run_inference.py --model llama32_1b_instruct --resume     # continue a run
+uv run python scripts/build_pilot_sample.py               # regenerate the Kaggle pilot's data
+# The Kaggle timing pilot is run BY THE HUMAN on Kaggle — see notebooks/kaggle_timing_pilot.ipynb.
 
 # Quality gates — all must pass before crossing a phase boundary.
 uv run pytest -q
@@ -254,8 +346,24 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
 
 1. ~~Hardware branch~~ — **DECIDED: Windows laptop for dev (`win_amd64`, core+dev only), Linux /
    free-tier Kaggle GPU for inference (`linux_x86_64`, NF4). The 7–8B sweep never runs locally.** §7.
-2. **Model checkpoints** (before P5): exact 7–8B repo + **pinned revision hash** + license, plus the
-   ~1B dev model; verify current availability at that time.
+2. ~~**Model checkpoints**~~ — **DECIDED 9 Sep 2026.** All four verified reachable at pin time; the
+   two Meta repos are `gated: manual` and the project account's licence acceptance is confirmed.
+   **Revisions were RESOLVED through `huggingface_hub`, never hand-authored** — re-check with
+   `uv run python scripts/pin_models.py`.
+
+   | role | repo | revision | license |
+   |---|---|---|---|
+   | confirmatory | `meta-llama/Llama-3.1-8B-Instruct` | `0e9e39f249a16976918f6564b8830bc894c89659` | llama3.1 (gated) |
+   | confirmatory | `mistralai/Mistral-7B-Instruct-v0.3` | `c170c708c41dac9275d15a8fff4eca08d52bab71` | apache-2.0 |
+   | dev | `meta-llama/Llama-3.2-1B-Instruct` | `9213176726f574b556790deb65791e0c5aa438b6` | llama3.2 (gated) |
+   | ci | `hf-internal-testing/tiny-random-LlamaForCausalLM` | `9fb191250dd56d0ba7ec9785a025ed29c03d5998` | unknown |
+
+   *Rationale:* **instruct** checkpoints are a deliberate construct choice, not a default — the P4a
+   prompts are instructions, and a base model continues an instruction as text rather than performing
+   it, which would make the harm signal a measurement of off-task drift. The pair spans **two
+   families** so the confirmatory result is not one architecture's quirk. A pin that drifts is not a
+   pin: `ModelSpec` rejects a branch name, and a re-pin is a logged decision, because any result
+   produced under the old revision was produced under a *different* model.
 3. **Emergence link/scale + null model** (before P7/P9): identity vs logit; the additive null to test
    against. Must be pre-registered (tag due end of W4).
 4. **Quantization-as-axis:** OFF unless the human runs the dedicated literature search first.

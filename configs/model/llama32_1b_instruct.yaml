@@ -1,0 +1,18 @@
+# Development model (open decision #2, resolved 9 Sep 2026).
+#
+# `revision` is RESOLVED by `scripts/pin_models.py`, never hand-authored.
+
+model_id: meta-llama/Llama-3.2-1B-Instruct
+revision: 9213176726f574b556790deb65791e0c5aa438b6
+license: llama3.2
+role: dev
+family: llama
+
+gated: true
+
+note: >-
+  The laptop-runnable checkpoint every local smoke test targets: the determinism, sequence-logprob
+  and resumability gates all run against this on CPU. Same family as the 8B confirmatory pin, so
+  the chat template and tokenizer behaviour exercised locally are the ones the sweep will hit.
+  bitsandbytes NF4 is a CUDA/Linux path, so a Windows load of this model is UNQUANTIZED and the
+  backend records that it fell back rather than reporting the intended constant.

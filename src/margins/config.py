@@ -80,6 +80,11 @@ LATTICE_INPUT_KEY: Final[str] = "lattice_config"
 #: ``tests/test_lattice_in_manifest.py`` pins the two together.
 DEFAULT_LATTICE_NAME: Final[str] = "confirmatory_v1"
 
+#: Default decoding profile name, and the one P4a already stamps on every prompt. A literal for the
+#: same reason as :data:`DEFAULT_LATTICE_NAME`; ``tests/test_inference_manifest.py`` pins it against
+#: ``margins.inference.decoding.DEFAULT_DECODING``.
+DEFAULT_DECODING_NAME: Final[str] = "greedy_v1"
+
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -134,13 +139,61 @@ class ExperimentConfig(BaseModel):
         description="Lattice config name; its sha256 is recorded in the manifest inputs.",
     )
 
-    # Open decision #2 (model checkpoint + pinned revision) is not settled until P5, so these
-    # stay None. A revision is required alongside an id precisely because an unpinned HF repo
-    # can change under a reproducer.
+    # Added at P5, and named with the `_name` suffix for exactly the reason `lattice_name` is:
+    # `configs/model/` and `configs/decoding/` are Hydra config GROUPS, and a key colliding with a
+    # group name cannot be overridden from the command line at all. Each name resolves to
+    # `configs/<group>/<name>.yaml`, whose sha256 goes into the manifest inputs -- a name alone
+    # would not survive an edit to the file.
+    model_name: str | None = Field(
+        default=None,
+        description="Model config name. None for runs that load no model (e.g. build_prompts).",
+    )
+    decoding_name: str = Field(
+        default=DEFAULT_DECODING_NAME,
+        min_length=1,
+        description="Decoding profile name; must match the decoding_key stamped on the prompts.",
+    )
+
+    # Open decision #2 was settled at P5 (9 Sep 2026), but these stay optional and are populated
+    # PER RUN from the resolved ModelSpec rather than being authored here -- the pinned sha lives in
+    # `configs/model/<name>.yaml`, resolved by `scripts/pin_models.py`, and is copied in so the
+    # manifest's serialised config states the exact checkpoint the run used.
     model_id: str | None = None
     model_revision: str | None = None
 
     manifest: ManifestSettings = ManifestSettings()
+
+
+class InferenceRecord(BaseModel):
+    """What the inference stage actually did, for runs that loaded a model (P5).
+
+    Exists because :attr:`ExperimentConfig.quant` records the *intended* constant and
+    ``environment`` records the *machine*, but neither says what the load resolved to. NF4 is a
+    bitsandbytes/CUDA path, so a Windows dev run falls back to unquantized -- and a manifest in
+    which that is indistinguishable from a real NF4 run would make the recorded constant worthless
+    (CLAUDE.md framing constraint 4).
+
+    ``batch_size`` is here for the determinism claim, not for performance bookkeeping: padding
+    changes floating-point reduction order, so identical token sequences are guaranteed at a *fixed*
+    batch size and thread count, and a reproducer cannot check that without knowing the batch size.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    model_name: str
+    model_id: str
+    model_revision: str = Field(description="The RESOLVED commit sha the run actually loaded.")
+    quant_requested: QuantSetting
+    quant_actual: QuantSetting
+    quant_fallback_reason: str | None = None
+    device: str
+    dtype: str
+    prompt_format: str
+    chat_template_sha256: str | None = None
+    decoding_key: str
+    decoding_hash: str
+    batch_size: int = Field(ge=1)
+    seeds: tuple[int, ...]
 
 
 class RunManifest(BaseModel):
@@ -166,7 +219,14 @@ class RunManifest(BaseModel):
     environment: EnvironmentFingerprint
     determinism_note: str
     input_checksums: dict[str, str]
-    quant: QuantSetting
+    quant: QuantSetting = Field(description="The INTENDED constant, from the config.")
+    inference: InferenceRecord | None = Field(
+        default=None,
+        description=(
+            "What the inference stage actually did, including the quantization it resolved to. "
+            "None for runs that load no model, such as prompt generation."
+        ),
+    )
 
 
 def config_hash(cfg: ExperimentConfig) -> str:
@@ -285,6 +345,8 @@ def write_run_manifest(
     inputs: Mapping[str, str] | None = None,
     timestamp: datetime | None = None,
     repo_root: Path | None = None,
+    run_id: str | None = None,
+    inference: InferenceRecord | None = None,
 ) -> RunManifest:
     """Write ``<results_dir>/<manifest_subdir>/<run_id>.json`` and return what was written.
 
@@ -295,6 +357,10 @@ def write_run_manifest(
         timestamp: Recorded creation time; defaults to now (UTC). Pass it explicitly to make
             ``run_id`` reproducible.
         repo_root: Where to ask git about the worktree. Defaults to the package's repository.
+        run_id: Reuse an existing run id instead of deriving a fresh one. This is what makes an
+            inference run **resumable**: a killed sweep restarts against the same response file and
+            the same manifest, rather than orphaning both. Still recorded, never random.
+        inference: What the inference stage actually did. None for runs that load no model.
 
     Returns:
         The manifest **re-read and re-validated from the file on disk**, so the returned object
@@ -312,12 +378,12 @@ def write_run_manifest(
 
     created = (timestamp or datetime.now(UTC)).astimezone(UTC)
     digest = config_hash(cfg)
-    run_id = make_run_id(cfg, digest, created)
+    resolved_run_id = run_id if run_id is not None else make_run_id(cfg, digest, created)
     root = repo_root if repo_root is not None else Path(__file__).resolve().parents[2]
     git_sha, git_dirty = _git_state(root)
 
     manifest = RunManifest(
-        run_id=run_id,
+        run_id=resolved_run_id,
         created_at=created.isoformat().replace("+00:00", "Z"),
         config_hash=digest,
         config=cfg,
@@ -335,9 +401,10 @@ def write_run_manifest(
         determinism_note=residual_nondeterminism_note(),
         input_checksums=dict(inputs or {}),
         quant=cfg.quant,
+        inference=inference,
     )
 
-    destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{run_id}.json"
+    destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{resolved_run_id}.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
         json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True, ensure_ascii=False)

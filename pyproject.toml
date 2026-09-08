@@ -30,13 +30,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Every inference dep is Linux-gated. The 7-8B sweep never runs on the Windows dev box
-# (PROJECT_CONTEXT.md §7), and gating here is what stops `uv lock` from hunting for a
-# `bitsandbytes` win_amd64 wheel — i.e. it removes the pressure to unpin.
+# P5 amendment to the §7 split. The gating is now per-package rather than blanket-Linux:
+#
+#   * `bitsandbytes` (and the heavy dataset/scorer stack) stay Linux-gated. NF4 is a CUDA/Linux
+#     path, and gating is what stops `uv lock` from hunting for a `bitsandbytes` win_amd64 wheel
+#     -- i.e. it removes the pressure to unpin.
+#   * `torch`/`transformers`/`accelerate`/`huggingface-hub` are NOT gated, so the extra installs
+#     on win_amd64 too. That is what lets the P5 determinism, log-prob and resumability tests run
+#     against the ~1B DEV model on the Windows box, and what lets `scripts/pin_models.py` resolve
+#     a revision there. The default `uv sync` is unchanged (core + dev, no torch), and the 7-8B
+#     sweep still never runs locally -- being *installable* is not being *installed*.
 inference = [
-    "torch>=2.3,<3; sys_platform == 'linux'",
-    "transformers>=4.44,<5; sys_platform == 'linux'",
-    "accelerate>=0.33,<2; sys_platform == 'linux'",
+    "torch>=2.3,<3",
+    "transformers>=4.44,<5",
+    "accelerate>=0.33,<2",
+    "huggingface-hub>=0.36.2",
     "bitsandbytes>=0.43,<0.48; sys_platform == 'linux'",
     "datasets>=2.20,<4; sys_platform == 'linux'",
     "evaluate>=0.4,<0.5; sys_platform == 'linux'",
@@ -68,12 +76,23 @@ environments = [
 line-length = 100
 target-version = "py311"
 src = ["src", "tests", "scripts"]
+# A generated mirror of `scripts/kaggle_timing_pilot.py`, which IS linted. Linting both would
+# report every finding twice and would make the drift check (which compares the two byte for byte)
+# fight the formatter. Notebooks are never load-bearing here (CLAUDE.md guardrails) and CI already
+# fails if `src/` or `scripts/` imports from `notebooks/`.
+extend-exclude = ["notebooks/kaggle_timing_pilot.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+# The Kaggle pilot embeds a GENERATED data block (model pins, the decoding profile, 50 real
+# rendered prompts) written by `scripts/build_pilot_sample.py`. Embedding is what makes the pilot a
+# single self-contained file on Kaggle, where this repo is not checked out; the block's long string
+# literals cannot be wrapped without corrupting the prompts they carry. The hand-written half of the
+# file is still covered by every other rule and by `ruff format --check`.
+"scripts/kaggle_timing_pilot.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -87,8 +106,26 @@ show_error_codes = true
 module = ["hydra.*", "omegaconf.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# The inference stack is an OPTIONAL extra, so `mypy src` runs against it PRESENT (a dev box or the
+# nightly job with `--extra inference`) and ABSENT (the core environment and the core CI job).
+# `ignore_missing_imports` alone makes those two cases disagree: absent, the packages are `Any` and
+# everything passes; present, mypy follows their partial stubs and strict mode rejects every call
+# into an untyped signature (`AutoTokenizer.from_pretrained`, `BitsAndBytesConfig`, ...).
+#
+# A type check whose result depends on which extras happen to be installed is not a gate. Skipping
+# these imports makes the packages `Any` in BOTH cases, so `mypy src` means the same thing
+# everywhere. Our own code stays fully strict -- this narrows nothing except the third-party
+# surface `margins.inference` deliberately imports lazily.
+module = ["torch.*", "transformers.*", "bitsandbytes.*", "huggingface_hub.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 # "." puts the repo root on the path so tests can share helpers via `tests.conftest`.
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "inference: needs the inference extra (torch). Skipped on the core environment and in the core CI job.",
+]

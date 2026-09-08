@@ -49,13 +49,24 @@ jobs:
         run: uv run pytest -q
 
   inference-cpu:
-    # TODO(P5): this job currently only proves the inference extra RESOLVES AND INSTALLS on
-    # Linux. It does not load a model. The tiny-checkpoint determinism tests
-    # (hf-internal-testing/tiny-random-LlamaForCausalLM -- availability unverified, verify at
-    # P5) belong to the P5 gate and are added there, not here.
+    # Runs the P5 gate: determinism, sequence log-probs, and the resumable harness, on CPU.
+    #
+    # It loads a model, but a TINY one. `hf-internal-testing/tiny-random-LlamaForCausalLM` is a few
+    # megabytes, randomly initialised, and ungated -- which matters because this job has no HF
+    # token and therefore cannot reach the gated Meta pins the dev box uses. Its outputs are
+    # meaningless by construction, and that is fine: these tests check the HARNESS, not the model.
+    #
+    # There is still NO GPU here (PROJECT_CONTEXT.md section 7). The NF4 path is exercised on
+    # Kaggle, never in CI, and the docs must not imply otherwise. On this runner the backend falls
+    # back to an unquantized load and records that it did.
     name: inference extra (CPU only, no GPU on GitHub runners)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'inference-ci')
+    env:
+      MARGINS_TEST_MODEL: tiny_random_llama
+      # Pinned: the determinism claim holds at a FIXED thread count, so a runner that varies its
+      # core count would make the claim uncheckable rather than false.
+      OMP_NUM_THREADS: "2"
     steps:
       - uses: actions/checkout@v7
 
@@ -67,8 +78,8 @@ jobs:
       - name: Sync with the inference extra
         run: uv sync --locked --extra dev --extra inference
 
-      - name: Import check only (no model is loaded here)
-        run: uv run python -c "import torch, transformers; print(torch.__version__, transformers.__version__)"
+      - name: Report the environment the determinism claim depends on
+        run: uv run python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.get_num_threads())"
 
-      - name: pytest
+      - name: pytest (includes the inference-marked P5 gate tests)
         run: uv run pytest -q

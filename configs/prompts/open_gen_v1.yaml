@@ -29,8 +29,9 @@ authored_at: "2026-09-08T00:00:00Z"
 # representation) is untouched and must be settled before the CrowS-Pairs loader / P4b.
 task_type: open_gen
 
-# TODO(P5): names a decoding profile; the resolved decoding config and its `decoding_hash` land
-# with the inference backend. P4a only stamps the name.
+# Names a decoding profile. P4a only stamps the name; the resolved config and its `decoding_hash`
+# landed at P5 in `configs/decoding/greedy_v1.yaml`. The backend refuses to run a prompt whose
+# `decoding_key` does not equal the profile it holds, so this string and that file cannot drift.
 decoding_key: "greedy_v1"
 
 description: |
