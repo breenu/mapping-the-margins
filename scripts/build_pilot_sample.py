@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,23 @@ from margins.prompts.config import TEMPLATE_DIRNAME
 #: Gate-relevant size: "~50 prompts spanning cell groups".
 PILOT_SAMPLE_SIZE = 50
 
+#: Packages the pilot must install on a notebook host, pinned to whatever ``uv.lock`` resolves for
+#: ``linux_x86_64``. Kaggle's image ships no ``bitsandbytes`` at all, so the NF4 load raises
+#: ``ImportError`` several minutes in, *after* the tokenizer download has started.
+#:
+#: The version is READ FROM THE LOCKFILE, never typed here. CLAUDE.md forbids installing unpinned
+#: "to make it work"; installing the exact version the locked Linux environment resolves to is the
+#: opposite of unpinning, and it is the only way to make the notebook host resemble that
+#: environment. A hand-typed version here would drift from the lock silently.
+LOCK_PINNED_PACKAGES: tuple[str, ...] = ("bitsandbytes",)
+
+#: Packages whose installed version the pilot RECORDS but does not touch. Reinstalling torch on a
+#: notebook host is slow and can break its CUDA build, and throughput is not sensitive enough to
+#: these to justify it -- but the measurement is only interpretable if the versions are known.
+RECORDED_PACKAGES: tuple[str, ...] = ("torch", "transformers", "accelerate", "huggingface_hub")
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 PILOT_SCRIPT = Path("scripts/kaggle_timing_pilot.py")
 PILOT_NOTEBOOK = Path("notebooks/kaggle_timing_pilot.ipynb")
 BEGIN = "# --- BEGIN GENERATED ---"
@@ -62,6 +80,10 @@ extrapolates the E1 budget in GPU-hours and as a share of Kaggle's ~30 GPU-h/wee
 2. **Add-ons -> Secrets:** add `HF_TOKEN` (a Hugging Face token whose account has **accepted the
    Meta Llama licence** -- `Llama-3.1-8B-Instruct` is gated) and attach it to this notebook.
 3. **Run All.** Roughly 20-40 minutes, most of it downloading ~30 GB of weights.
+   Kaggle ships no `bitsandbytes`; the first thing the cell does is install it at the exact version
+   `uv.lock` pins for Linux. **If you already ran this cell once before that install**, restart the
+   session and run again -- `transformers` caches whether bitsandbytes exists when it is first
+   imported. The script detects that and tells you, instead of failing ten minutes later.
 4. Bring back the printed table and the `pilot_results.json` it writes.
 
 Tight on session time? Change the last line to
@@ -116,6 +138,22 @@ def _dict(value: dict[str, Any], indent: str) -> str:
     return "{\n" + "\n".join(lines) + f"\n{indent}}}"
 
 
+def locked_versions(names: tuple[str, ...], lock_path: Path | None = None) -> dict[str, str]:
+    """``{package: version}`` as resolved in ``uv.lock``.
+
+    The pilot's pins come from here rather than from a literal, so "install bitsandbytes" on a
+    notebook host means "install exactly what the locked Linux environment has" and cannot drift
+    from it unnoticed.
+    """
+    path = lock_path or (REPO_ROOT / "uv.lock")
+    lock = tomllib.loads(path.read_text(encoding="utf-8"))
+    versions = {package["name"]: package["version"] for package in lock["package"]}
+    missing = [name for name in names if name not in versions]
+    if missing:
+        raise ValueError(f"{path} has no entry for {missing}; is the inference extra still locked?")
+    return {name: versions[name] for name in names}
+
+
 def render_block(
     *,
     lattice_name: str = DEFAULT_LATTICE,
@@ -159,6 +197,12 @@ def render_block(
     lines = [
         BEGIN,
         f"PILOT_META: dict[str, Any] = {_dict(meta, '')}",
+        f"PINNED_PACKAGES: dict[str, str] = {_dict(locked_versions(LOCK_PINNED_PACKAGES), '')}",
+        # _scalar, not repr(): repr writes single-quoted strings that `ruff format` immediately
+        # rewrites, which puts the generator and the formatter in a loop.
+        "RECORDED_PACKAGES: tuple[str, ...] = ("
+        + ", ".join(_scalar(name) for name in RECORDED_PACKAGES)
+        + ")",
         "MODELS: tuple[dict[str, str], ...] = (",
     ]
     lines.extend(f"    {_dict(entry, '    ')}," for entry in models)
@@ -190,9 +234,20 @@ def splice(script_text: str, block: str) -> str:
 
 
 def _cell(cell_type: str, source: str) -> dict[str, Any]:
-    """One notebook cell. ``source`` is a list of lines *with* their newlines, per nbformat."""
+    """One notebook cell. ``source`` is a list of lines *with* their newlines, per nbformat.
+
+    The ``id`` is REQUIRED by nbformat 4.5+ and is derived from the cell's content rather than
+    generated randomly: a random id would make every regeneration differ, and an absent one makes
+    the file invalid, so any tool that opens the notebook (VS Code, Jupyter, nbformat) rewrites it
+    -- which is exactly how this generator's output first drifted from what was on disk.
+    """
     lines = source.splitlines(keepends=True)
-    cell: dict[str, Any] = {"cell_type": cell_type, "metadata": {}, "source": lines}
+    cell: dict[str, Any] = {
+        "cell_type": cell_type,
+        "id": hashlib.sha256(source.encode("utf-8")).hexdigest()[:8],
+        "metadata": {},
+        "source": lines,
+    }
     if cell_type == "code":
         cell["execution_count"] = None
         cell["outputs"] = []
@@ -231,7 +286,19 @@ def render_notebook(script_text: str) -> str:
         "nbformat": 4,
         "nbformat_minor": 5,
     }
-    return json.dumps(notebook, indent=1, ensure_ascii=False) + "\n"
+    return json.dumps(notebook, indent=1, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def notebook_sources(notebook_json: str) -> list[tuple[str, str]]:
+    """``[(cell_type, source)]`` for a notebook, ignoring ids, metadata and key order.
+
+    The drift check compares notebooks THIS way rather than byte for byte. What has to be true is
+    that the notebook carries the same instructions and the same code as the script; editors and
+    nbformat legitimately rewrite ids, key order and execution counts, and a byte comparison would
+    report that harmless churn as staleness while adding nothing.
+    """
+    parsed = json.loads(notebook_json)
+    return [(cell["cell_type"], "".join(cell["source"])) for cell in parsed["cells"]]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -252,18 +319,13 @@ def main(argv: list[str] | None = None) -> int:
     notebook = render_notebook(updated)
 
     if args.check:
-        stale = [
-            name
-            for name, expected, actual in (
-                ("script", updated, current),
-                (
-                    "notebook",
-                    notebook,
-                    args.notebook.read_text(encoding="utf-8") if args.notebook.is_file() else "",
-                ),
-            )
-            if expected != actual
-        ]
+        stale: list[str] = []
+        if updated != current:
+            stale.append("script")
+        # Compared by cell content, not bytes: see notebook_sources().
+        on_disk = args.notebook.read_text(encoding="utf-8") if args.notebook.is_file() else ""
+        if not on_disk or notebook_sources(on_disk) != notebook_sources(notebook):
+            stale.append("notebook")
         if stale:
             print(f"STALE: {stale} do not match the current configs.")
             return 1

@@ -13,6 +13,11 @@ HOW TO RUN THIS ON KAGGLE  (the reference platform)
    Both work: pasted into a notebook the script detects the kernel and ignores the kernel's own
    argv, which argparse would otherwise reject.
 4. **Run All.** Expect roughly 20-40 minutes, most of it downloading ~30 GB of weights.
+   Kaggle's image ships no `bitsandbytes`, so the script installs it first, at the exact version
+   `uv.lock` resolves for Linux -- see `ensure_dependencies`. `--no-install` reports instead.
+   If you had already run this cell once *before* that install, restart the session and run again:
+   `transformers` caches whether bitsandbytes exists at import time. The script detects that case
+   and says so rather than failing again ten minutes later.
 5. Bring back the printed table and `pilot_results.json`.
 
 Restricting to one model if the session is tight -- change the last line of this file to:
@@ -167,6 +172,10 @@ PILOT_META: dict[str, Any] = {
     "sample_size": 50,
     "template_version": "open_gen_v1.1@2026-09-08",
 }
+PINNED_PACKAGES: dict[str, str] = {
+    "bitsandbytes": "0.47.0",
+}
+RECORDED_PACKAGES: tuple[str, ...] = ("torch", "transformers", "accelerate", "huggingface_hub")
 MODELS: tuple[dict[str, str], ...] = (
     {
         "license": "llama3.1",
@@ -470,6 +479,110 @@ def hf_token() -> str | None:
     return os.environ.get("HF_TOKEN")
 
 
+def package_version(name: str) -> str | None:
+    """Installed version of ``name``, or None."""
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def ensure_dependencies(*, install: bool = True) -> dict[str, str | None]:
+    """Install the pinned packages this host is missing, BEFORE anything downloads weights.
+
+    Kaggle's image ships **no bitsandbytes**, so the NF4 load raises ``ImportError`` from deep
+    inside ``from_pretrained`` -- several minutes in, after the tokenizer download has already run.
+    Failing (or fixing it) here costs seconds instead.
+
+    **This is not "pip install to make it work".** The version comes from ``PINNED_PACKAGES``, which
+    ``scripts/build_pilot_sample.py`` reads out of ``uv.lock``: it is exactly what the locked
+    ``linux_x86_64`` environment resolves to. Installing an unpinned or hand-chosen version is what
+    CLAUDE.md forbids; installing the locked one is how a notebook host is made to resemble that
+    environment at all.
+
+    Everything in ``RECORDED_PACKAGES`` is left alone and merely reported. Reinstalling torch on a
+    notebook host is slow and can break its CUDA build, and throughput is not sensitive enough to
+    those versions to justify it -- but the measurement is only interpretable if they are known, so
+    they land in ``pilot_results.json``.
+
+    Returns:
+        ``{package: version or None}`` for every pinned and recorded package, as finally installed.
+    """
+    import subprocess
+
+    for package, pinned in PINNED_PACKAGES.items():
+        current = package_version(package)
+        if current == pinned:
+            print(f"  {package}=={current} (matches uv.lock)")
+            continue
+        found = f"found {current}" if current else "not installed"
+        if not install:
+            raise SystemExit(
+                f"{package} {found}, need =={pinned} (from uv.lock). Re-run without --no-install, "
+                f"or install it yourself:  pip install {package}=={pinned}"
+            )
+        print(f"  {package}: {found} -> installing =={pinned} (pinned in uv.lock)", flush=True)
+        subprocess.check_call(
+            # --no-deps deliberately: bitsandbytes depends on torch, and letting pip resolve that
+            # on a notebook host risks swapping out the image's CUDA-matched torch build for a
+            # generic one -- a multi-GB download that can leave the GPU unusable. torch and numpy
+            # are already present; `_verify_bitsandbytes_visible_to_transformers` below is what
+            # catches it if a dependency really is missing.
+            [sys.executable, "-m", "pip", "install", "-q", "--no-deps", f"{package}=={pinned}"]
+        )
+        import importlib
+
+        importlib.invalidate_caches()
+        print(f"  {package}=={package_version(package)} installed")
+
+    _verify_bitsandbytes_visible_to_transformers()
+
+    versions: dict[str, str | None] = {
+        name: package_version(name) for name in (*PINNED_PACKAGES, *RECORDED_PACKAGES)
+    }
+    recorded = ", ".join(f"{name}={version}" for name, version in versions.items())
+    print(f"  environment: {recorded}")
+    return versions
+
+
+def _verify_bitsandbytes_visible_to_transformers() -> None:
+    """Ask transformers itself whether the 4-bit path will work, before anything downloads.
+
+    This is the check that matters: ``transformers`` decides whether bitsandbytes is available when
+    it is FIRST imported, so two situations produce the same ``ImportError`` deep inside
+    ``from_pretrained``, ten minutes and ~16 GB later:
+
+    * bitsandbytes was never installed (Kaggle's image ships none), or
+    * it was installed just now, but this cell had already run once and transformers is still in
+      ``sys.modules`` holding the old answer -- which looks like the install failed. It did not; the
+      kernel needs restarting.
+
+    Calling it here costs one transformers import that the run needs anyway, and converts both into
+    an immediate, actionable message.
+    """
+    if not PINNED_PACKAGES:
+        return
+    try:
+        from transformers.utils import is_bitsandbytes_available  # type: ignore[attr-defined]
+
+        available = bool(is_bitsandbytes_available())
+    except Exception:  # a transformers version without that helper: let the real load decide
+        return
+    if available:
+        print("  transformers can see bitsandbytes: the 4-bit path is available")
+        return
+    raise SystemExit(
+        "transformers cannot see bitsandbytes, so the 4-bit load would fail with an ImportError "
+        "after the weight download.\n"
+        f"  Installed: bitsandbytes=={package_version('bitsandbytes')}\n"
+        "  If this cell already ran once BEFORE that install, transformers cached the old answer: "
+        "restart the session and Run All again.\n"
+        "  Kaggle: Run -> Restart & clear cell outputs.   Colab: Runtime -> Restart session."
+    )
+
+
 def require_cuda() -> str:
     """Refuse to run without a GPU.
 
@@ -717,6 +830,11 @@ def main(argv: list[str] | None = None) -> int:
         "--prompts", type=int, default=len(PROMPT_SAMPLE), help="How many sampled prompts to time."
     )
     parser.add_argument("--out", type=Path, default=Path("pilot_results.json"))
+    parser.add_argument(
+        "--no-install",
+        action="store_true",
+        help="Report a missing pinned package instead of installing it, and stop.",
+    )
     args = parser.parse_args(argv)
 
     if not PROMPT_SAMPLE:
@@ -727,6 +845,12 @@ def main(argv: list[str] | None = None) -> int:
 
     gpu = require_cuda()
     platform = detect_platform()
+
+    # Before ANY weight download. Kaggle ships no bitsandbytes, and discovering that from inside
+    # `from_pretrained` costs several minutes of downloading first.
+    print("checking dependencies against uv.lock")
+    package_versions = ensure_dependencies(install=not args.no_install)
+
     token = hf_token()
     if token is None:
         where = {
@@ -763,6 +887,10 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "gpu": gpu,
         "platform": platform,
+        # The environment the measurement actually happened in. A throughput figure is only
+        # interpretable against the stack that produced it, and a notebook host's torch and
+        # transformers are its own, not the ones in uv.lock.
+        "package_versions": package_versions,
         "pilot_meta": PILOT_META,
         "decoding": DECODING,
         "measured": [asdict(timing) for timing in timings],

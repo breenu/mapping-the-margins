@@ -203,6 +203,98 @@ def test_token_lookup_covers_both_notebook_hosts() -> None:
     assert 'os.environ.get("HF_TOKEN")' in source
 
 
+def test_pinned_packages_come_from_the_lockfile(pilot: ModuleType) -> None:
+    """CLAUDE.md forbids installing unpinned "to make it work".
+
+    Kaggle's image has no bitsandbytes, so the pilot has to install one -- and the only version it
+    may install is the one the locked linux_x86_64 environment resolves to. Read from ``uv.lock``,
+    never typed, so the two cannot drift.
+    """
+    from scripts.build_pilot_sample import LOCK_PINNED_PACKAGES, locked_versions
+
+    assert pilot.PINNED_PACKAGES == locked_versions(LOCK_PINNED_PACKAGES)
+    assert "bitsandbytes" in pilot.PINNED_PACKAGES, (
+        "bitsandbytes must be pinned: its absence on Kaggle is what broke the first pilot run"
+    )
+    for version in pilot.PINNED_PACKAGES.values():
+        assert version[0].isdigit(), f"{version!r} is not an exact version"
+
+
+def test_dependencies_are_checked_before_any_weight_download(pilot: ModuleType) -> None:
+    """Order matters: discovering a missing package from inside from_pretrained costs minutes."""
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    body = source[source.index("def main(") : source.index("def in_notebook(")]
+    assert body.index("ensure_dependencies(") < body.index("time_model("), (
+        "the dependency preflight must run before the first model load, or a missing package is "
+        "discovered only after the tokenizer download has started"
+    )
+
+
+def test_a_missing_pinned_package_can_be_reported_instead_of_installed(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-install: name the exact pip command rather than changing someone's environment."""
+    monkeypatch.setattr(pilot, "package_version", lambda name: None)
+    with pytest.raises(SystemExit, match="bitsandbytes=="):
+        pilot.ensure_dependencies(install=False)
+
+
+def test_an_already_satisfied_pin_installs_nothing(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pilot, "package_version", lambda name: pilot.PINNED_PACKAGES.get(name))
+    monkeypatch.setattr(pilot, "_verify_bitsandbytes_visible_to_transformers", lambda: None)
+    versions = pilot.ensure_dependencies(install=True)
+    assert versions["bitsandbytes"] == pilot.PINNED_PACKAGES["bitsandbytes"]
+
+
+def _fake_transformers(monkeypatch: pytest.MonkeyPatch, *, available: bool) -> None:
+    utils = ModuleType("transformers.utils")
+    utils.is_bitsandbytes_available = lambda: available  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", ModuleType("transformers"))
+    monkeypatch.setitem(sys.modules, "transformers.utils", utils)
+
+
+def test_transformers_is_asked_whether_the_4bit_path_works(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_transformers(monkeypatch, available=True)
+    pilot._verify_bitsandbytes_visible_to_transformers()
+    assert "can see bitsandbytes" in capsys.readouterr().out
+
+
+def test_bitsandbytes_invisible_to_transformers_fails_before_downloading(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Covers BOTH ways this ends in the same ImportError 16 GB later.
+
+    Either bitsandbytes was never installed (Kaggle's image ships none), or it was installed just
+    now but this cell already ran once, so transformers cached the old answer -- which looks like
+    the install failed. It did not; the kernel needs restarting, and the script must say so.
+    """
+    _fake_transformers(monkeypatch, available=False)
+    with pytest.raises(SystemExit, match=r"(?i)restart the session"):
+        pilot._verify_bitsandbytes_visible_to_transformers()
+
+
+def test_the_install_does_not_let_pip_touch_torch(pilot: ModuleType) -> None:
+    """Resolving bitsandbytes' torch dependency could swap the host's CUDA build for a generic one.
+
+    That is a multi-GB download which can leave the GPU unusable -- on a host whose whole purpose
+    here is measuring GPU throughput.
+    """
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    install = source[source.index("subprocess.check_call(") :][:600]
+    assert '"--no-deps"' in install, "pip must not be allowed to resolve torch on a notebook host"
+
+
+def test_the_measurement_environment_is_recorded(pilot: ModuleType) -> None:
+    """A throughput figure is uninterpretable without the stack that produced it."""
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    assert '"package_versions": package_versions' in source
+    assert set(pilot.RECORDED_PACKAGES) >= {"torch", "transformers"}
+
+
 def test_platform_is_detected_and_recorded(pilot: ModuleType) -> None:
     """A Colab run's GPU-hours are real; its percentage column is still a KAGGLE allowance."""
     assert pilot.detect_platform() in {"kaggle", "colab", "other"}
