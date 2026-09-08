@@ -1,7 +1,7 @@
 """Kaggle timing pilot -- the W2 measurement that turns the prompt set into a GPU-hour budget.
 
 ===============================================================================================
-HOW TO RUN THIS ON KAGGLE
+HOW TO RUN THIS ON KAGGLE  (the reference platform)
 ===============================================================================================
 1. New Notebook -> Settings:
      * Accelerator: **GPU T4 x2**   (the pilot uses one T4; x2 is simply what Kaggle offers)
@@ -9,11 +9,26 @@ HOW TO RUN THIS ON KAGGLE
 2. Add-ons -> Secrets -> add a secret named **HF_TOKEN** holding a Hugging Face token whose
    account has **accepted the Meta Llama licence**. Llama-3.1-8B-Instruct is gated; without an
    accepted licence the download 401s. Attach the secret to the notebook.
-3. Paste this file into one code cell (or upload it and `!python kaggle_timing_pilot.py`).
+3. Paste this whole file into one code cell, or upload it and `!python kaggle_timing_pilot.py`.
+   Both work: pasted into a notebook the script detects the kernel and ignores the kernel's own
+   argv, which argparse would otherwise reject.
 4. **Run All.** Expect roughly 20-40 minutes, most of it downloading ~30 GB of weights.
 5. Bring back the printed table and `pilot_results.json`.
 
-Restricting to one model if the session is tight:  `--models llama31_8b_instruct`
+Restricting to one model if the session is tight -- change the last line of this file to:
+    main(["--models", "llama31_8b_instruct"])
+
+-----------------------------------------------------------------------------------------------
+RUNNING ON COLAB INSTEAD (the documented debugging backup, PROJECT_CONTEXT.md section 7)
+-----------------------------------------------------------------------------------------------
+Works, with two differences the script handles and reports:
+  * The token comes from the Colab **secrets panel** (the key icon in the left sidebar): add
+    `HF_TOKEN` and enable notebook access. `google.colab.userdata` is read automatically.
+  * **The `% of 30 GPU-h/wk` column is a KAGGLE figure.** Colab's free allowance is neither 30 h
+    nor published as a fixed number, so on Colab that column answers "what would this cost on
+    Kaggle", which is the question the budget decision actually needs. The measured seconds per
+    prompt are equally valid on either platform when the GPU is the same T4 -- and the GPU that
+    was actually used is recorded in `pilot_results.json`.
 ===============================================================================================
 
 WHAT THIS MEASURES, AND WHY IT EXISTS
@@ -409,8 +424,31 @@ class ModelTiming:
     per_prompt_seconds: list[float] = field(default_factory=list)
 
 
+def detect_platform() -> str:
+    """Which notebook host this is: ``kaggle``, ``colab``, or ``other``.
+
+    Recorded rather than assumed, for one reason that matters: the ``% of 30 GPU-h/wk`` column is a
+    **Kaggle** allowance. A Colab run produces perfectly good seconds-per-prompt on the same T4, but
+    reading its percentage column as "share of my Colab quota" would be wrong, so the report says
+    which host it ran on and the JSON records it.
+    """
+    import os
+
+    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or Path("/kaggle").is_dir():
+        return "kaggle"
+    if "google.colab" in sys.modules or Path("/content").is_dir():
+        return "colab"
+    return "other"
+
+
 def hf_token() -> str | None:
-    """The HF token, from the Kaggle secret first and the environment second."""
+    """The HF token: Kaggle secret, then Colab secret, then the environment.
+
+    All three, because the pilot is documented to run on Kaggle *and* on Colab as the debugging
+    backup, and the two hosts expose secrets through completely different APIs. Looking in only one
+    place means the gated Meta checkpoints 401 several minutes into a session, after the download
+    has already started.
+    """
     import os
 
     try:
@@ -418,7 +456,18 @@ def hf_token() -> str | None:
 
         return str(UserSecretsClient().get_secret("HF_TOKEN"))
     except Exception:  # not on Kaggle, or the secret is not attached
-        return os.environ.get("HF_TOKEN")
+        pass
+
+    try:
+        from google.colab import userdata  # type: ignore[import-not-found]
+
+        secret = userdata.get("HF_TOKEN")
+        if secret:
+            return str(secret)
+    except Exception:  # not on Colab, or the secret has no notebook access
+        pass
+
+    return os.environ.get("HF_TOKEN")
 
 
 def require_cuda() -> str:
@@ -432,8 +481,9 @@ def require_cuda() -> str:
     if not torch.cuda.is_available():
         raise SystemExit(
             "No CUDA device. This pilot exists to MEASURE GPU throughput, and a CPU timing "
-            "presented as a GPU budget would be a fabricated number. On Kaggle: Settings -> "
-            "Accelerator -> GPU T4 x2."
+            "presented as a GPU budget would be a fabricated number.\n"
+            "  Kaggle: Settings -> Accelerator -> GPU T4 x2.\n"
+            "  Colab:  Runtime -> Change runtime type -> T4 GPU."
         )
     return str(torch.cuda.get_device_name(0))
 
@@ -581,7 +631,9 @@ def print_measurements(timings: list[ModelTiming], gpu: str) -> None:
         )
 
 
-def print_extrapolation(timings: list[ModelTiming]) -> list[dict[str, Any]]:
+def print_extrapolation(
+    timings: list[ModelTiming], platform: str = "kaggle"
+) -> list[dict[str, Any]]:
     """The scenario table. Assumptions are printed above the numbers, not buried."""
     print("\n" + "=" * 92)
     print("EXTRAPOLATION TO THE E1 BUDGET")
@@ -595,6 +647,12 @@ def print_extrapolation(timings: list[ModelTiming]) -> list[dict[str, Any]]:
     print(f"  * free-tier allowance taken as {KAGGLE_WEEKLY_GPU_HOURS:.0f} GPU-h/week")
     if len(timings) < 2:
         print("  * ONLY ONE MODEL WAS TIMED -- rows below cover that model alone, not the pair")
+    if platform != "kaggle":
+        print(
+            f"  * RAN ON {platform.upper()}, NOT KAGGLE. The GPU-h are real (measured on the GPU "
+            "named above),\n    but the percentage column is a KAGGLE allowance: read it as 'what "
+            "this would cost on\n    Kaggle', not as a share of this host's quota."
+        )
 
     rows: list[dict[str, Any]] = []
     for scenario in scenarios():
@@ -668,11 +726,17 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     gpu = require_cuda()
+    platform = detect_platform()
     token = hf_token()
     if token is None:
+        where = {
+            "kaggle": "Kaggle: Add-ons -> Secrets -> add HF_TOKEN and attach it to this notebook.",
+            "colab": "Colab: the key icon in the left sidebar -> add HF_TOKEN, enable notebook "
+            "access.",
+        }.get(platform, "Set the HF_TOKEN environment variable.")
         print(
-            "WARNING: no HF_TOKEN found (Kaggle secret or environment). The gated Meta "
-            "checkpoints will 401. Add-ons -> Secrets -> HF_TOKEN, and attach it.",
+            "WARNING: no HF_TOKEN found. Both Meta checkpoints are GATED and will 401 several "
+            f"minutes into the download.\n  {where}",
             file=sys.stderr,
         )
 
@@ -683,6 +747,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     prompts = list(PROMPT_SAMPLE)[: args.prompts]
+    print(f"platform: {platform}")
     print(f"GPU: {gpu}")
     print(f"prompt sample: {len(prompts)} prompts from {PILOT_META.get('template_version')}")
     print(f"lattice: {PILOT_META.get('lattice_version')}\n")
@@ -693,10 +758,11 @@ def main(argv: list[str] | None = None) -> int:
         timings.append(time_model(entry, prompts, token))
 
     print_measurements(timings, gpu)
-    rows = print_extrapolation(timings)
+    rows = print_extrapolation(timings, platform)
 
     payload = {
         "gpu": gpu,
+        "platform": platform,
         "pilot_meta": PILOT_META,
         "decoding": DECODING,
         "measured": [asdict(timing) for timing in timings],
@@ -715,5 +781,26 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def in_notebook() -> bool:
+    """True when running inside an IPython kernel (Kaggle, Colab, Jupyter)."""
+    try:
+        from IPython import get_ipython  # type: ignore[import-not-found]
+    except Exception:
+        return False
+    shell = get_ipython()
+    return shell is not None and hasattr(shell, "kernel")
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # A cell pasted into a notebook ALSO has __name__ == "__main__", but `sys.argv` there belongs
+    # to the kernel launcher (`-f /root/.../kernel-<uuid>.json`), which argparse rejects outright:
+    #
+    #     error: unrecognized arguments: -f /root/.../kernel-....json
+    #
+    # So pass an explicit empty argv in a notebook, and do NOT raise SystemExit there -- in a kernel
+    # that surfaces as a traceback and an "un-exited" warning rather than a clean finish. Pasting
+    # this file into one cell is a documented way to run the pilot, so it has to work.
+    if in_notebook():
+        main([])
+    else:
+        raise SystemExit(main())

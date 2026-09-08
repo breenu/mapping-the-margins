@@ -67,6 +67,13 @@ extrapolates the E1 budget in GPU-hours and as a share of Kaggle's ~30 GPU-h/wee
 Tight on session time? Change the last line to
 `main(["--models", "llama31_8b_instruct"])` to time one model instead of two.
 
+**On Colab instead?** It works -- Colab is the documented debugging backup. Add `HF_TOKEN` in the
+secrets panel (the key icon in the left sidebar) and enable notebook access; the script reads Kaggle
+and Colab secrets both. One caveat it prints for you: the `% of 30 GPU-h/wk` column is a **Kaggle**
+allowance, so on Colab read it as *"what this would cost on Kaggle"* -- which is the question the
+budget decision needs anyway. The measured seconds/prompt are equally valid on the same T4, and the
+GPU actually used is recorded in `pilot_results.json`.
+
 *Generated from `scripts/kaggle_timing_pilot.py` by `scripts/build_pilot_sample.py`. Do not edit
 here -- edit the script and regenerate, or the two will disagree about what was measured.*
 """
@@ -199,12 +206,21 @@ def render_notebook(script_text: str) -> str:
     exactly one copy of the measurement logic. Nothing imports from ``notebooks/`` and nothing here
     writes to ``results/``, so the no-load-bearing-notebooks guardrail holds.
     """
-    # `raise SystemExit(main())` would kill the kernel on Kaggle; in a notebook we just call it.
-    body = script_text.replace(
-        'if __name__ == "__main__":\n    raise SystemExit(main())\n',
-        "# Notebook entrypoint. `raise SystemExit` would kill the Kaggle kernel, so call main()\n"
-        '# directly. Pass e.g. ["--models", "llama31_8b_instruct"] to time a single model.\n'
-        "main([])\n",
+    # Replace the script's dual entrypoint with the unconditional notebook one. The script already
+    # detects a kernel and does the right thing when pasted, so this is belt-and-braces -- but it
+    # also puts `main([])` on the last line, where the README tells the reader to edit it.
+    #
+    # Sliced rather than string-replaced: a `.replace()` that stops matching after an edit to the
+    # script's tail fails SILENTLY, shipping a notebook whose last cell parses the KERNEL's argv and
+    # dies on `-f kernel.json`. That is exactly the bug this pilot hit in the field.
+    marker = 'if __name__ == "__main__":'
+    if marker not in script_text:
+        raise ValueError(f"{PILOT_SCRIPT} has no {marker!r} entrypoint to replace")
+    body = script_text[: script_text.index(marker)] + (
+        "# Notebook entrypoint. The script detects a kernel on its own; the notebook states it\n"
+        "# outright: no argv parsing, and no SystemExit (which surfaces as a traceback in a\n"
+        '# kernel). Time a single model with: main(["--models", "llama31_8b_instruct"])\n'
+        "main([])\n"
     )
     notebook = {
         "cells": [_cell("markdown", NOTEBOOK_README), _cell("code", body)],

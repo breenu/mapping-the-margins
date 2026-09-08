@@ -146,13 +146,95 @@ def test_notebook_is_two_cells_wrapping_the_script(pilot: ModuleType) -> None:
     assert [cell["cell_type"] for cell in notebook["cells"]] == ["markdown", "code"]
 
     readme = "".join(notebook["cells"][0]["source"])
-    for required in ("GPU T4", "Internet", "HF_TOKEN", "Run All"):
+    for required in ("GPU T4", "Internet", "HF_TOKEN", "Run All", "Colab"):
         assert required in readme, f"the setup instructions lost {required!r}"
 
     code = "".join(notebook["cells"][1]["source"])
-    assert "raise SystemExit(main())" not in code, "SystemExit would kill the Kaggle kernel"
-    assert "main([])" in code
+    assert "raise SystemExit(main())" not in code, "SystemExit surfaces as a traceback in a kernel"
+    assert code.rstrip().endswith("main([])"), (
+        "the notebook's last statement must be `main([])`. Anything that reaches argparse with the "
+        "kernel's argv dies on `-f /root/.../kernel-<uuid>.json` -- the failure this pilot hit."
+    )
     assert code.count("PROMPT_SAMPLE: tuple") == 1
+
+
+# --------------------------------------------------------------------------------------
+# Notebook hosts: the failure this pilot actually hit in the field
+# --------------------------------------------------------------------------------------
+
+
+def test_pasting_the_script_into_a_notebook_does_not_parse_the_kernels_argv(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pasted cell has ``__name__ == "__main__"`` and the KERNEL's argv.
+
+    Reported from a real session::
+
+        colab_kernel_launcher.py: error: unrecognized arguments:
+            -f /root/.local/share/jupyter/runtime/kernel-4fbcf93b-....json
+
+    Pasting the file into one cell is a documented way to run the pilot, so ``main([])`` -- not
+    ``main()`` -- must be what a kernel reaches. Checked on the source text because the guard runs
+    under ``__main__``, which importing the module deliberately does not trigger.
+    """
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    tail = source[source.index('if __name__ == "__main__":') :]
+    assert "in_notebook()" in tail, "the entrypoint does not check for a notebook kernel"
+    assert "main([])" in tail, "a notebook must be handed an explicit empty argv"
+
+    # And argparse really does reject a kernel's argv, which is why the guard has to exist.
+    monkeypatch.setattr(
+        sys, "argv", ["colab_kernel_launcher.py", "-f", "/root/.../kernel-abc.json"]
+    )
+    with pytest.raises(SystemExit):
+        pilot.main()  # argv=None -> reads sys.argv -> argparse rejects `-f kernel.json`
+
+
+def test_token_lookup_covers_both_notebook_hosts() -> None:
+    """Kaggle and Colab expose secrets through completely different APIs.
+
+    Looking in only one place means the gated Meta checkpoints 401 several minutes into a session,
+    after the weight download has already started -- on the host PROJECT_CONTEXT.md section 7 names
+    as the debugging backup.
+    """
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    assert "kaggle_secrets" in source
+    assert "google.colab" in source
+    assert 'os.environ.get("HF_TOKEN")' in source
+
+
+def test_platform_is_detected_and_recorded(pilot: ModuleType) -> None:
+    """A Colab run's GPU-hours are real; its percentage column is still a KAGGLE allowance."""
+    assert pilot.detect_platform() in {"kaggle", "colab", "other"}
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    assert '"platform": platform' in source, "pilot_results.json must record where it ran"
+
+
+def test_a_non_kaggle_run_says_the_quota_column_is_kaggles(
+    pilot: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    timing = pilot.ModelTiming(
+        name="solo",
+        model_id="owner/solo",
+        revision="0" * 40,
+        load_seconds=1.0,
+        quant="nf4",
+        prompts_timed=50,
+        total_generate_seconds=50.0,
+        seconds_per_prompt=1.0,
+        generated_tokens_total=100,
+        generated_tokens_mean=2.0,
+        generated_tokens_median=2.0,
+        tokens_per_second=2.0,
+        peak_vram_gb=1.0,
+    )
+    pilot.print_extrapolation([timing], "colab")
+    printed = capsys.readouterr().out
+    assert "RAN ON COLAB, NOT KAGGLE" in printed
+    assert "KAGGLE allowance" in printed
+
+    pilot.print_extrapolation([timing], "kaggle")
+    assert "NOT KAGGLE" not in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------------------
