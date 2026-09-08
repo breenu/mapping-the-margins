@@ -1,0 +1,74 @@
+name: CI
+
+# GitHub-hosted runners have NO GPU. Nothing in this workflow exercises a model on an
+# accelerator, and the docs must not imply otherwise (PROJECT_CONTEXT.md section 7).
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly, for the gated inference job only.
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    # Exactly the two environments uv.lock resolves for (PROJECT_CONTEXT.md section 7).
+    name: core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync from the lockfile
+        # --locked fails rather than re-resolving: a lockfile that has drifted from
+        # pyproject.toml must be a CI failure, not a silent update.
+        run: uv sync --locked --extra dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy src
+
+      - name: pytest
+        run: uv run pytest -q
+
+  inference-cpu:
+    # TODO(P5): this job currently only proves the inference extra RESOLVES AND INSTALLS on
+    # Linux. It does not load a model. The tiny-checkpoint determinism tests
+    # (hf-internal-testing/tiny-random-LlamaForCausalLM -- availability unverified, verify at
+    # P5) belong to the P5 gate and are added there, not here.
+    name: inference extra (CPU only, no GPU on GitHub runners)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'inference-ci')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync with the inference extra
+        run: uv sync --locked --extra dev --extra inference
+
+      - name: Import check only (no model is loaded here)
+        run: uv run python -c "import torch, transformers; print(torch.__version__, transformers.__version__)"
+
+      - name: pytest
+        run: uv run pytest -q

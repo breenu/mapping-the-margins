@@ -1,0 +1,16 @@
+# Normalise to LF in the repository for every text file.
+#
+# Not cosmetic: this project records sha256 input checksums in every run manifest and the P4
+# gate requires BYTE-IDENTICAL prompt regeneration. Letting the platform decide line endings
+# would make a checksum depend on which machine checked the file out.
+* text=auto eol=lf
+
+# Binary / generated
+*.parquet binary
+*.png binary
+*.pdf binary
+*.safetensors binary
+*.gguf binary
+
+# Lockfile is generated; keep diffs collapsed in review.
+uv.lock linguist-generated=true

@@ -1,0 +1,44 @@
+# Environments
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Regenerable and NEVER version-controlled (PROJECT_CONTEXT.md section 4).
+# data/ holds benchmarks, prompts, raw response dumps, scores. Dumps ship as a Zenodo
+# artifact at release, not in git.
+data/
+outputs/
+multirun/
+
+# Hydra working dirs
+.hydra/
+
+# Model weights and raw dumps -- belt and braces alongside check-added-large-files.
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# results/ IS committed (small final tables + run_manifests/ + paper_numbers.json).
+# Figures are regenerable but small vector files; keep the directory, ignore rasters.
+figures/*.png
+
+# OS
+.DS_Store
+Thumbs.db

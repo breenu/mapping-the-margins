@@ -1,0 +1,22 @@
+# Hydra root config. Deliberately PLAIN YAML: Hydra composes, the result is converted to a
+# plain dict, and margins.config.config_from_mapping validates it into ExperimentConfig.
+# No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md section 6).
+
+seed: 20260908
+run_name: default
+
+output_dir: outputs
+data_dir: data
+results_dir: results
+
+# Fixed recorded constant, not an experimental axis (CLAUDE.md framing constraint 4).
+quant: nf4
+
+# Open decision #2 -- exact 7-8B repo + pinned revision hash is settled at P5, not before.
+model_id: null
+model_revision: null
+
+manifest:
+  write_manifest: true
+  manifest_subdir: run_manifests
+  record_environment_fingerprint: true
