@@ -1,0 +1,101 @@
+# A tiny SYNTHETIC lattice for tests. Not a real descriptor set and not sourced from
+# HolisticBias — the source below is a fixture, labelled as one, so no test can mistake it for
+# real provenance. Cardinalities here are hand-computed in tests/test_lattice_cells.py.
+#
+#   order-1: 2 + 3 + 2 + 2                                   =  9
+#   order-2: alpha×beta 6, alpha×gamma 4, alpha×gender_x 4,
+#            beta×gamma 6                                    = 20
+#   total                                                    = 29
+#
+# beta × gamma carries a rendering override below the min_cell_n threshold, so it is the
+# underpowered (descriptive-only) pair the power-flag tests assert against.
+
+lattice_version: "tiny@test"
+
+description: |
+  Synthetic fixture lattice. Four axes, one of them gender-anchored, four declared pairs (two of
+  them non-gender × non-gender, satisfying gate P3) and two axis pairs deliberately left
+  UNDECLARED so the anti-cartesian guarantee has something to prove.
+
+sources:
+  fixture_source:
+    kind: descriptor_taxonomy
+    source: "synthetic test fixture (not a real descriptor source)"
+    url: null
+    path: "tests/fixtures/lattice/tiny.yaml"
+    revision: "0000000000000000000000000000000000000000"
+    version: "fixture-v1"
+    license: "MIT"
+    sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    retrieved_at: "2026-09-08T00:00:00Z"
+
+axes:
+  alpha:
+    label: "alpha"
+    gender_anchored: false
+    compose_rank: 10
+    source: fixture_source
+    source_axis: alpha_upstream
+    values:
+      - { source_term: "a1", source_bucket: "bucket_a" }
+      - { source_term: "a2", source_bucket: "bucket_a" }
+
+  beta:
+    label: "beta"
+    gender_anchored: false
+    compose_rank: 20
+    source: fixture_source
+    source_axis: beta_upstream
+    values:
+      - { source_term: "b1", source_bucket: "bucket_b" }
+      - { source_term: "b2", source_bucket: "bucket_b" }
+      - { source_term: "b3", source_bucket: "bucket_b", preference: "reviewed" }
+
+  gamma:
+    label: "gamma"
+    gender_anchored: false
+    compose_rank: 30
+    source: fixture_source
+    source_axis: gamma_upstream
+    values:
+      # surface deliberately differs from the registry value, so composition is exercised
+      # against the surface form rather than the id token.
+      - { source_term: "g1", source_bucket: "bucket_g", surface: "gee-one" }
+      - { source_term: "g2", source_bucket: "bucket_g" }
+
+  gender_x:
+    label: "gender (fixture)"
+    gender_anchored: true
+    compose_rank: 40
+    source: fixture_source
+    source_axis: gender_upstream
+    values:
+      - { source_term: "x1", source_bucket: "bucket_x" }
+      - { source_term: "x2", source_bucket: "bucket_x" }
+
+pairs:
+  - axes: ["alpha", "beta"]
+    status: confirmatory
+    rationale: "non-gender × non-gender fixture pair"
+  - axes: ["beta", "gamma"]
+    status: confirmatory
+    rationale: "non-gender × non-gender fixture pair, underpowered by override"
+  - axes: ["alpha", "gender_x"]
+    status: confirmatory
+    rationale: "gender-anchored contrast fixture pair"
+  - axes: ["alpha", "gamma"]
+    status: exploratory
+    rationale: "exploratory fixture pair, no significance claim"
+
+# UNDECLARED on purpose: beta × gender_x and gamma × gender_x. No order-2 cell may exist for
+# either — that is the anti-cartesian guarantee.
+
+power:
+  min_cell_n: 10
+  renderings_per_cell:
+    order_1: 12
+    order_2: 12
+  pair_overrides:
+    - axes: ["beta", "gamma"]
+      renderings_per_cell: 4
+      reason: "fixture: forces an underpowered, descriptive-only pair"

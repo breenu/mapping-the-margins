@@ -8,19 +8,43 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ complete.** P0: environment, `margins.repro`, `margins.config` + run manifest, CI.
-P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols), walking skeleton, and
-the schema field-freeze test. 120 tests; all four gates green on `win_amd64` and in CI on both
-locked environments.
+**P0 ✅ · P1 ✅ · P3 ✅ complete.** P0: environment, `margins.repro`, `margins.config` + run
+manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols), walking
+skeleton, and the schema field-freeze test. P3: `margins.lattice` — `LatticeConfig`
+(`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a **pinned
+descriptor source** (not a loader), and the two exports. 200 tests; all four gates green on
+`win_amd64` and in CI on both locked environments.
 
-**NEXT TASK: P3 — identity lattice.** Not yet started.
+**NEXT TASK: P4a — `TemplateRenderer` (`open_gen` prompt generation).** Not yet started.
+
+### P3 as built (for P4a to consume)
+
+- **5 axes / 18 values**, every value traced to HolisticBias **v1.1**, pinned to commit
+  `6d76f31a6631aa882fd00fadb6dd8600577533d1` (file sha256 `c1328f0e…52daf943`, MIT).
+  `scripts/fetch_holistic_bias.py` retrieves it; `scripts/build_lattice.py --verify` checks every
+  `(axis, bucket, term, preference)` tuple against that file, so a fabricated descriptor is a
+  failing check rather than a paper claim.
+- **110 cells** — 18 order-1, 92 order-2 — from **7 declared pairs only** (the anti-cartesian
+  guarantee; the full product would be 10 pairs). **6 confirmatory pairs = the FDR family, 4 of
+  them non-gender × non-gender** (`class×race`, `age×ability`, `ability×race`, `age×class`)
+  against the gate's minimum of 2. 1 exploratory pair (`age×race`), descriptive only.
+- **Exports** (regenerable, gitignored): `data/lattice/cell_inventory.csv` and
+  `data/lattice/value_provenance.md`. Byte-deterministic.
+- **`min_cell_n = 60` is a PRE-REGISTERED PLACEHOLDER.** TODO(P9): derive it from the real power
+  analysis (α=0.05, power=0.8). Projected 96 renderings/cell → **10,560 renderings total**; the
+  W2 Kaggle timing pilot is what turns that into a budget.
+- **Descriptor composition is a construct choice** (`DeclaredLattice.compose_descriptor`):
+  surfaces joined in `compose_rank` order, e.g. `working-class Black`, `older blind`. It emits a
+  modifier phrase and **no carrier noun** — attaching one is P4a's decision, in the template.
+- **Open at P4a:** `ExperimentConfig` does not yet name a lattice. `scripts/build_lattice.py`
+  prints the config sha256 for `write_run_manifest(inputs=...)`; wire it when P4a needs a run.
 
 ### Build order (DECIDED 8 Sep 2026 — generation vertical first)
 
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → **P3** → **P4a** (TemplateRenderer) → P5 → P6 → P7 → *then* P2 (CrowS-Pairs) →
+> P0 ✅ → P1 ✅ → P3 ✅ → **P4a** (TemplateRenderer) → P5 → P6 → P7 → *then* P2 (CrowS-Pairs) →
 > **P4b** (ExtractiveRenderer) → P8 → P9 → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary

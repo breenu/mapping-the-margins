@@ -16,7 +16,8 @@ intersections, and all of it at **accessible / free-tier compute** — no indust
 |---|---|
 | **P0** — environment, seeding, run manifest, CI | ✅ complete |
 | **P1** — schemas + interfaces | ✅ complete |
-| P2–P13 | not started |
+| **P3** — identity lattice | ✅ complete |
+| P4a and later | not started |
 
 Phases are built strictly in the order in [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
 §5; each is gated by §11.
@@ -85,6 +86,35 @@ uv run python scripts/p0_demo.py
 Two invariants are enforced structurally rather than by review: only `EffectEstimate` may carry
 significance fields (`CellStat` is descriptive and has no `p`/`q` at all), and no shared record
 may carry a source-specific field — source quirks live only in `Item.payload`.
+
+## What P3 gives you
+
+- **`configs/lattice/confirmatory_v1.yaml`** — the lattice declaration, and **pre-registration
+  material**: 5 axes, 18 descriptor values, and the named axis pairs. The 6 confirmatory pairs
+  *are* the FDR family; 4 of them are non-gender × non-gender (gate P3 / novelty claim 5).
+- **`margins.lattice.LatticeConfig`** — Hydra composes the plain YAML, Pydantic validates it, and
+  three rules are structural rather than conventional: a value with no source does not load,
+  a lattice with fewer than two non-gender × non-gender confirmatory pairs does not load, and the
+  confirmatory family is capped so the BH threshold cannot be diluted into uselessness.
+- **`margins.lattice.DeclaredLattice`** — 110 `IdentityCell`s (18 order-1, 92 order-2) generated
+  for **declared axis pairs only**. That anti-cartesian rule is the point: crossing every axis
+  with every other would multiply cells, divide the per-cell budget, and inflate the FDR family.
+  `compose_descriptor` is a documented **construct choice**, not a neutral operation.
+- **`margins.lattice.descriptors`** — HolisticBias v1.1 as a **pinned descriptor source, never a
+  `BenchmarkLoader`** (`open_gen` is a generation path, not an ingestion one). Every value is
+  verified against the pinned file at its exact `(axis, bucket, term, preference)` coordinates,
+  so an invented descriptor is a failing check rather than a paper claim.
+- **Exports** — `data/lattice/cell_inventory.csv` marks every cell powered vs descriptive
+  *before* any run; `data/lattice/value_provenance.md` traces every value to its source. Both are
+  byte-deterministic across Windows and Linux.
+
+`min_cell_n` is a **pre-registered placeholder**; TODO(P9) derives the real threshold from the
+power analysis (α=0.05, power=0.8). No power computation happens in P3.
+
+```bash
+uv run python scripts/fetch_holistic_bias.py    # once: retrieve the pinned descriptors
+uv run python scripts/build_lattice.py --verify # build, verify every term, write both exports
+```
 
 ## Compute
 
