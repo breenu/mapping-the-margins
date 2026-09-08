@@ -19,9 +19,9 @@ from ~8 Sep.** *(Verify the deadline year against the official CFP; these dates 
 2027. See the note atop `PROJECT_CONTEXT.md`.)* **Hard go/no-go on Sep 28–29** — five criteria in §13;
 if any fails the fallback is ACL Rolling Review or a non-archival workshop, decided at that gate.
 
-**Outstanding env item:** no git remote is configured yet — CI will not actually run until one is
-added. Not blocking local work. The repo lives at `C:\dev\mapping-the-margins` (outside OneDrive)
-and has **no commits yet**, so manifests currently record `git_sha: null` with `git_dirty: true`.
+**Environment preconditions all met.** Repo at `C:\dev\mapping-the-margins` (outside OneDrive),
+git initialised on `main`, remote is **private** `github.com/breenu/mapping-the-margins`, CI runs on
+push. Flip the repo to public at P13 release, not before.
 
 **What this is (one line):** a reproducible, statistically rigorous **framework** (Python package
 `margins`) for **intersectional bias auditing of open-weight LLMs**. The deliverable is *the
