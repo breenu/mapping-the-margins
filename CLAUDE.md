@@ -8,11 +8,15 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ complete.** Environment, `margins.repro`, `margins.config` + run manifest, tests, CI.
-All four quality gates green on `win_amd64` (Python 3.11.16, uv 0.12.10, 117 packages locked).
+**P0 ✅ · P1 ✅ complete.** P0: environment, `margins.repro`, `margins.config` + run manifest, CI.
+P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols), walking skeleton, and
+the schema field-freeze test. 120 tests; all four gates green on `win_amd64` and in CI on both
+locked environments.
 
-**NEXT TASK: P1 — schemas + interfaces.** Build strictly in the order in
-`docs/PROJECT_CONTEXT.md` §5; do not skip ahead. Update this section as phases complete.
+**NEXT TASK: P2 — extractive benchmark ingestion (CrowS-Pairs) + validity screening.** Note §5's
+warning: the **generation** path is the MVP and CrowS-Pairs is the *second* vertical. If building
+the spine in order, P3 (lattice) → P4 (prompts) → P5 (inference) is the risky path and P2 can
+follow it. Confirm the intended order before starting. Do not skip ahead.
 
 **Hard deadline: FAccT abstract 27 Oct 2026 (mandatory, non-placeholder), paper 3 Nov 2026 — 8 weeks
 from ~8 Sep.** *(Verify the deadline year against the official CFP; these dates may belong to FAccT
@@ -146,6 +150,11 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
 5. **Paper title** is not finalized (distinctiveness risk noted in the deep reference). Working
    repo/package names are `mapping-the-margins` / `margins`. Don't hard-code a paper title anywhere
    load-bearing.
+6. **`pair_pll` scoring shape** (before P6 — W3, on the critical path; surfaced by P1, see
+   `PROJECT_CONTEXT.md` §3): a PLL score compares *two sequences*, so one `ItemScore` per `Response`
+   does not fit. Choose (a) one `Response` carrying two logprob fields, or (b) a paired `ItemScore`
+   variant. **P1 deliberately did not choose** — `schemas.py` encodes neither, so nothing has to be
+   unpicked. Do not defer this past the CrowS-Pairs loader.
 
 ---
 

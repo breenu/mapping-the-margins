@@ -88,6 +88,7 @@ module = ["hydra.*", "omegaconf.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# "." puts the repo root on the path so tests can share helpers via `tests.conftest`.
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-q"

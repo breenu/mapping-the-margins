@@ -15,7 +15,7 @@ intersections, and all of it at **accessible / free-tier compute** — no indust
 | Phase | State |
 |---|---|
 | **P0** — environment, seeding, run manifest, CI | ✅ complete |
-| P1 — schemas + interfaces | next |
+| **P1** — schemas + interfaces | ✅ complete |
 | P2–P13 | not started |
 
 Phases are built strictly in the order in [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
@@ -67,6 +67,24 @@ Demo both:
 ```bash
 uv run python scripts/p0_demo.py
 ```
+
+## What P1 gives you
+
+- **`margins.schemas`** — the frozen, source-agnostic records that *are* the unified metric
+  layer. Every stage depends on these and on nothing else of any other stage. Records are
+  deeply immutable and hashable (`FrozenDict` freezes payloads all the way down, so a nested
+  list cannot smuggle mutability into a "frozen" record), and `extra="forbid"` everywhere.
+- **`margins.interfaces`** — one `Protocol` per pipeline stage, so sources, scorers, and
+  backends are swappable and fakeable without inheriting from anything.
+- **`tests/test_walking_skeleton.py`** — no-op fakes for every Protocol, composed end to end
+  on fake data. It proves the contracts *compose* before any real logic exists; it computes
+  nothing meaningful and asserts nothing about correctness.
+- **`tests/test_schema_field_freeze.py`** — pins the exact field set of every shared record.
+  Deliberately brittle: a field change is a contract change and must be a conscious edit.
+
+Two invariants are enforced structurally rather than by review: only `EffectEstimate` may carry
+significance fields (`CellStat` is descriptive and has no `p`/`q` at all), and no shared record
+may carry a source-specific field — source quirks live only in `Item.payload`.
 
 ## Compute
 
