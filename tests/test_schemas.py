@@ -371,6 +371,61 @@ def test_response_token_logprobs_is_a_tuple() -> None:
     assert isinstance(hash(response), int)
 
 
+def _response(**overrides: object) -> Response:
+    data: dict[str, object] = {
+        "response_id": "r",
+        "prompt_id": "p",
+        "model_id": "m",
+        "model_revision": "rev",
+        "seed": 1,
+        "temperature": 0.0,
+        "decoding_key": "greedy",
+        "decoding_hash": "h",
+        "quant": "nf4",
+        "text": "t",
+    }
+    data.update(overrides)
+    return Response.model_validate(data)
+
+
+def test_pair_logprobs_default_to_null_for_open_gen() -> None:
+    """open_gen responses carry no pair, which is the default rather than a special case."""
+    response = _response()
+    assert response.logprob_stereo is None
+    assert response.logprob_antistereo is None
+    assert not response.is_paired
+    assert response.stereo_preference is None
+
+
+def test_pair_logprobs_must_move_together() -> None:
+    """Half a pair is not a measurement."""
+    with pytest.raises(ValidationError, match="set together or not at all"):
+        _response(logprob_stereo=-3.0)
+    with pytest.raises(ValidationError, match="set together or not at all"):
+        _response(logprob_antistereo=-4.0)
+
+
+def test_stereo_preference_sign_convention_is_higher_equals_more_harm() -> None:
+    """Guards the direction. Swapping the two fields silently flips every pair_pll effect."""
+    prefers_stereotype = _response(logprob_stereo=-2.0, logprob_antistereo=-5.0)
+    assert prefers_stereotype.is_paired
+    assert prefers_stereotype.stereo_preference == pytest.approx(3.0)
+    assert prefers_stereotype.stereo_preference is not None
+    assert prefers_stereotype.stereo_preference > 0, "preferring the stereotype must score higher"
+
+    prefers_antistereotype = _response(logprob_stereo=-5.0, logprob_antistereo=-2.0)
+    assert prefers_antistereotype.stereo_preference == pytest.approx(-3.0)
+
+    indifferent = _response(logprob_stereo=-3.0, logprob_antistereo=-3.0)
+    assert indifferent.stereo_preference == pytest.approx(0.0)
+
+
+def test_paired_response_round_trips_and_stays_hashable() -> None:
+    response = _response(logprob_stereo=-2.0, logprob_antistereo=-5.0)
+    assert Response.model_validate_json(response.model_dump_json()) == response
+    assert isinstance(hash(response), int)
+
+
 def test_item_score_condition_is_constrained() -> None:
     """The drift control depends on this split existing and being spelled exactly."""
     base: dict[str, object] = {

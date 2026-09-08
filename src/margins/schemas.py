@@ -425,6 +425,13 @@ class Response(BaseModel):
     ``repetition_penalty`` are otherwise recorded nowhere, which would leave a response
     uninterpretable without the config that produced it. Determinism is a contract
     (invariant 5), so a response must carry enough to check it.
+
+    **Paired-task shape (open decision 6, resolved 8 Sep 2026 as option (a)).** A ``pair_pll``
+    measurement compares *two* sequences, which does not fit one score per response. Rather
+    than split :class:`ItemScore` into two shapes — forcing every downstream consumer to branch
+    on task type — the pair lives on this single record as
+    :attr:`logprob_stereo` / :attr:`logprob_antistereo`, and the scorer reads the preference off
+    it. ``open_gen`` responses leave both null.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -446,6 +453,58 @@ class Response(BaseModel):
     token_logprobs: tuple[float, ...] | None = Field(
         default=None, description="A tuple, not a list, so the record stays hashable."
     )
+
+    # --- paired-task log-probabilities (pair_pll only; null on open_gen) ---
+    # Named for what they MEASURE, not for any one dataset's columns: CrowS-Pairs'
+    # sent_more/sent_less vocabulary is source-specific and would violate invariant 2 on a
+    # shared record. These are whole-sequence log-probabilities, distinct from the per-token
+    # `token_logprobs` above.
+    logprob_stereo: float | None = Field(
+        default=None,
+        description=(
+            "Sequence log-probability of the MORE-stereotyping member of the pair. Null for "
+            "non-paired tasks."
+        ),
+    )
+    logprob_antistereo: float | None = Field(
+        default=None,
+        description=(
+            "Sequence log-probability of the LESS-stereotyping (anti-stereotypical) member. "
+            "Null for non-paired tasks. SIGN CONVENTION: the bias signal is "
+            "`logprob_stereo - logprob_antistereo`, positive when the model prefers the "
+            "stereotyping sequence -- i.e. higher = more harm, matching the standardization "
+            "rule. Reversing this pair silently flips the sign of every pair_pll effect."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _pair_logprobs_move_together(self) -> Response:
+        """Half a pair is not a measurement.
+
+        Note what this does *not* check: that the fields are null exactly when the task is
+        ``open_gen``. ``Response`` carries no ``task_type`` (it lives on :class:`Prompt`), so
+        that constraint spans two records and is enforced at the P5/P6 boundary, not here.
+        """
+        present = (self.logprob_stereo is not None, self.logprob_antistereo is not None)
+        if any(present) and not all(present):
+            raise ValueError(
+                "logprob_stereo and logprob_antistereo are set together or not at all; got "
+                f"logprob_stereo={self.logprob_stereo}, "
+                f"logprob_antistereo={self.logprob_antistereo}"
+            )
+        return self
+
+    @property
+    def is_paired(self) -> bool:
+        """True when this response carries a ``pair_pll`` measurement."""
+        return self.logprob_stereo is not None and self.logprob_antistereo is not None
+
+    @property
+    def stereo_preference(self) -> float | None:
+        """``logprob_stereo - logprob_antistereo``; higher = more harm. None if not paired."""
+        if self.logprob_stereo is None or self.logprob_antistereo is None:
+            return None
+        return self.logprob_stereo - self.logprob_antistereo
 
 
 class ItemScore(BaseModel):

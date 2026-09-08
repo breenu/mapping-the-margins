@@ -42,6 +42,9 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
         "template_version",
         "decoding_key",
     },
+    # CONTRACT CHANGE 8 Sep 2026 (open decision 6, option (a)): logprob_stereo and
+    # logprob_antistereo added so a pair_pll pair is one Response rather than a second
+    # ItemScore shape. Named for what they measure, never for a dataset's columns.
     Response: {
         "response_id",
         "prompt_id",
@@ -54,6 +57,8 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
         "quant",
         "text",
         "token_logprobs",
+        "logprob_stereo",
+        "logprob_antistereo",
     },
     ItemScore: {
         "score_id",

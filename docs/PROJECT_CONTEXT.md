@@ -252,7 +252,7 @@ mapping-the-margins/
 │   ├── benchmarks/           # P2 — EXTRACTIVE loaders + screening (CrowS-Pairs first)
 │   ├── lattice/              # P3 — axes, cells, power bookkeeping
 │   │   └── descriptors/      #      HolisticBias descriptor/value source (+ provenance). NOT a loader.
-│   ├── prompts/              # P4 — jinja rendering (Extractive + Template renderers)
+│   ├── prompts/              # P4a Template renderer (with the generation vertical); P4b Extractive (with P2)
 │   ├── inference/            # P5 — backend + resumable run harness
 │   ├── scoring/              # P6 — scorers + triangulation + calibration + drift control
 │   ├── metrics/              # P7 — emergence estimator + cross-paradigm comparison
@@ -297,39 +297,68 @@ Emitted per run to `results/run_manifests/<run_id>.json`. Must contain enough to
 Phases in **build order** (not data-flow order). Cross a phase only when its validation gate (§11)
 passes. Update completion status in `CLAUDE.md`.
 
-| # | Phase | Depends on | Exit criteria |
-|---|-------|-----------|---------------|
-| P0 | Env + repro + config | — | pinned env (uv), `set_global_seed`, run-manifest writer, CI on clean checkout |
-| P1 | Schemas + interfaces | P0 | frozen records + Protocols + walking-skeleton test + schema field-freeze test |
-| P2 | Extractive benchmark ingestion + validity screening | P1 | **CrowS-Pairs** loader; screening report; excluded-item log. (WinoBias/StereoSet/BBQ-calib: out of scope unless ahead) |
-| P3 | Identity lattice | P1 | axes/values from the HolisticBias descriptor source w/ provenance; ≥2 non-gender×non-gender cells; cell inventory w/ projected N + power flags |
-| P4 | Prompt generation | P2, P3 | deterministic versioned prompt set from both renderers; template-fill audit |
-| P5 | Model inference | P0, P4 | quantized backend; `generate()` + `sequence_logprob()`; determinism + resumability tests |
-| P6 | Scoring + triangulation + drift control | P5 | ≥2 scorers/harm; inter-scorer agreement; **scorer identity-drift control quantified**; calibration on hand-labeled sample |
-| P7 | Emergent metric + cross-paradigm comparison | P6 | interaction estimator (synthetic-recovery tested); permutation baseline; cross-paradigm effect vector + agreement |
-| P8 | Automated red-teaming | P5, P6 | cell-targeted prompts (confirmatory pairs only); manual on-target audit; dedup/filter |
-| P9 | Statistics layer | P6, P7 | FDR + power + cluster bootstrap + sensitivity; pre-registration tagged BEFORE full runs |
-| P10 | Visualization + reporting | P7, P9 | one-command figure regeneration; `paper_numbers.json` emitted |
-| P11 | Experiments | P0–P10 | confirmatory result set (E1, E3, E4, baselines, R1/R2) |
-| P12 | Paper | P11 | manuscript + supplement |
-| P13 | Open-source release | P11 | tagged release + Zenodo DOI + model/data cards + reproduction script (post-submission) |
+**Phase IDs are stable labels, not a sequence.** The table below is sorted by *build order*, so the
+IDs deliberately run out of numeric order (P3 before P2). IDs are referenced by §11, §12 and §13 and
+are never renumbered; read the leftmost column as a name, not a position.
+
+**The generation vertical is built first, the extractive vertical second** — decided 8 Sep 2026, see
+*Spine to build first* below for the rationale. **P4 is split accordingly**: `TemplateRenderer`
+depends only on the lattice and rides with the generation vertical, while `ExtractiveRenderer`
+cannot be built before a loader exists and rides with CrowS-Pairs.
+
+| Build order | # | Phase | Depends on | Exit criteria |
+|---|---|-------|-----------|---------------|
+| 1 | P0 | Env + repro + config | — | pinned env (uv), `set_global_seed`, run-manifest writer, CI on clean checkout |
+| 2 | P1 | Schemas + interfaces | P0 | frozen records + Protocols + walking-skeleton test + schema field-freeze test |
+| 3 | P3 | Identity lattice | P1 | axes/values from the HolisticBias descriptor source w/ provenance; ≥2 non-gender×non-gender cells; cell inventory w/ projected N + power flags |
+| 4 | **P4a** | Prompt generation — `TemplateRenderer` (`open_gen`) | P3 | deterministic versioned prompt set from the template renderer; template-fill audit |
+| 5 | P5 | Model inference | P0, P4a | quantized backend; `generate()` + `sequence_logprob()`; determinism + resumability tests |
+| 6 | P6 | Scoring + triangulation + drift control | P5 | ≥2 scorers/harm; inter-scorer agreement; **scorer identity-drift control quantified**; calibration on hand-labeled sample |
+| 7 | P7 | Emergent metric + cross-paradigm comparison | P6 | interaction estimator (synthetic-recovery tested); permutation baseline; cross-paradigm effect vector + agreement |
+| 8 | P2 | Extractive benchmark ingestion + validity screening | P1 | **CrowS-Pairs** loader; screening report; excluded-item log. (WinoBias/StereoSet/BBQ-calib: out of scope unless ahead) |
+| 9 | **P4b** | Prompt generation — `ExtractiveRenderer` (`pair_pll`) | P2, P4a | `ExtractiveRenderer` emits no cell unattested in its source item; byte-identical regeneration |
+| 10 | P8 | Automated red-teaming | P5, P6 | cell-targeted prompts (confirmatory pairs only); manual on-target audit; dedup/filter |
+| 11 | P9 | Statistics layer | P6, P7 | FDR + power + cluster bootstrap + sensitivity; pre-registration tagged BEFORE full runs |
+| 12 | P10 | Visualization + reporting | P7, P9 | one-command figure regeneration; `paper_numbers.json` emitted |
+| 13 | P11 | Experiments | P0–P10 | confirmatory result set (E1, E3, E4, baselines, R1/R2) |
+| 14 | P12 | Paper | P11 | manuscript + supplement |
+| 15 | P13 | Open-source release | P11 | tagged release + Zenodo DOI + model/data cards + reproduction script (post-submission) |
+
+**Note on E2/RQ1 and the cut order.** RQ1's cross-paradigm claim needs *both* verticals, so it cannot
+land until P2 + P4b are done. That is the deliberate cost of front-loading the generation path: if the
+schedule slips, RQ1 is what degrades, while RQ2 — the primary estimand — is already secured. This
+matches §12's cut order (E1 → B1/B3 → E4 → E2 → E3), which already ranks the cross-paradigm
+experiment below the main audit.
 
 ### Spine to build first — the MVP is the GENERATION path
 
 The MVP's first vertical is **generation**, because that is where RQ2 lives and where the risk is:
 
-> HolisticBias descriptor values → **lattice (P3)** → **templates (P4)** → inference (P5, ~1B dev
+> HolisticBias descriptor values → **lattice (P3)** → **templates (P4a)** → inference (P5, ~1B dev
 > model) → scoring + **scorer identity-drift control** (P6) → emergence estimator (P7) → stats (P9)
 > → one figure.
+
+**This ordering is DECIDED (8 Sep 2026), not a preference — it is written into the §5 table above.**
+Against a 7-week clock to the abstract, the phase that must not be reached late is the one carrying
+the primary estimand. Building generation first means a slip costs *breadth* (RQ1's second paradigm),
+which the confirmatory scope already treats as cuttable; building extraction first would mean a slip
+costs a *claim*.
 
 **CrowS-Pairs (P2, extractive) is the SECOND vertical**, added once the generation path is green. It
 is what makes RQ1's cross-paradigm comparison possible, but it is not the risky path and **must not be
 built first** — building it first would validate the easy half of the pipeline and leave scoring,
 triangulation, and the primary estimand untested.
 
+**P4 is split along the same seam.** `TemplateRenderer` (**P4a**) *injects* a cell into a template and
+depends only on P3, so it belongs to the generation vertical and is the next build after the lattice.
+`ExtractiveRenderer` (**P4b**) *derives* a cell from a source item and cannot exist before a loader
+does, so it depends on P2 and rides with the second vertical. The two renderers were always
+documented as having incompatible semantics (§3); the split makes that difference a scheduling fact
+rather than a footnote.
+
 **HolisticBias is a descriptor/value taxonomy, NOT a benchmark loader.** `open_gen` is a *generation*
 path, not an ingestion path. HolisticBias supplies **lattice axis values with provenance** (P3,
-`margins/lattice/descriptors/`) and **template slot fillers** (P4). It must never appear as a
+`margins/lattice/descriptors/`) and **template slot fillers** (P4a). It must never appear as a
 `BenchmarkLoader`.
 
 **Never build:** red-teaming before inference+scoring; any cross-paradigm comparison before ≥2 sources
@@ -551,7 +580,8 @@ pre-registered by the human.
 | P1 | Walking skeleton runs through all interfaces on fake data; schema round-trip + immutability + hashability + order-validator tests pass; **schema field-freeze test** pins the exact field set of every shared record. |
 | P2 | Row counts match published dataset; checksums recorded; 5-item eyeball; every exclusion logged with a reason; screening is deterministic. |
 | P3 | Every lattice value traces to a provenance-carrying source via the `AxisValue` registry, and every `IdentityCell` axis pair resolves in it; **≥2 non-gender×non-gender primary cells named**; cell inventory marks powered vs descriptive before any run. Note: with CrowS-Pairs as the only extractive source, these cells are reachable **only** via the templated `open_gen` and red-team paths — this gate cannot be met from extractive items and must not slip. |
-| P4 | Byte-identical prompt regeneration from the same config; 20-prompt manual slot audit; `ExtractiveRenderer` emits no cell unattested in its source item. |
+| P4a | Byte-identical prompt regeneration from the same config; 20-prompt manual slot audit of template fills. (Template renderer only — the `ExtractiveRenderer` clause moved to P4b with the §5 split.) |
+| P4b | `ExtractiveRenderer` emits no cell unattested in its source item; byte-identical regeneration from the same config. |
 | P5 | Same-seed greedy produces identical token sequences on CPU at a fixed thread count (tiny model); logprob path matches a hand-computed toy value within the documented tolerance; kill/restart resumes without dup/drop. |
 | P6 | Inter-scorer α/κ reported; scorer precision/recall on 150–300 labeled items; **scorer identity-drift interaction quantified per scorer and reported**; poor-agreement and high-drift harms downgraded. |
 | P7 | Synthetic recovery test: injected interaction recovered within CI; zero-interaction → ~0. Permutation null centred on ~0 under a no-effect synthetic. |
@@ -602,8 +632,8 @@ the top of this file.)*
 | Week | Dates | Work | Must be true at the end |
 |---|---|---|---|
 | W1 | Sep 8–14 | P0 + P1 | Env locked, manifest writes, walking skeleton green |
-| W2 | Sep 15–21 | P3 lattice (HolisticBias values) + P4 templates + P5 spine on ~1B dev model + **Kaggle timing pilot** | Prompts regenerate byte-identically; **measured** GPU-h per 1k prompts |
-| W3 | Sep 22–28 | P6 scoring: ≥2 scorers + **drift control**; P2 CrowS-Pairs loader + screening; small-scale smoke run | Smoke run passes end-to-end; drift quantified |
+| W2 | Sep 15–21 | P3 lattice (HolisticBias values) + **P4a** templates + P5 spine on ~1B dev model + **Kaggle timing pilot** | Prompts regenerate byte-identically; **measured** GPU-h per 1k prompts |
+| W3 | Sep 22–28 | P6 scoring: ≥2 scorers + **drift control**; P2 CrowS-Pairs loader + screening + **P4b** extractive renderer; small-scale smoke run | Smoke run passes end-to-end; drift quantified |
 | — | **Sep 28–29** | **HARD GO / NO-GO** (criteria below) | Venue decision made deliberately |
 | W4 | Sep 29–Oct 5 | P7 emergence estimator (test-first) + P9 stats; **pre-registration written and git-tagged** | Synthetic recovery passes; tag predates any full run |
 | W5 | Oct 6–12 | P8 red-teaming (confirmatory pairs only) + **full E1 run** + E4 sensitivity subset | E1 results in hand |

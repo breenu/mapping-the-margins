@@ -13,10 +13,25 @@ P1: `margins.schemas` (frozen records) + `margins.interfaces` (Protocols), walki
 the schema field-freeze test. 120 tests; all four gates green on `win_amd64` and in CI on both
 locked environments.
 
-**NEXT TASK: P2 — extractive benchmark ingestion (CrowS-Pairs) + validity screening.** Note §5's
-warning: the **generation** path is the MVP and CrowS-Pairs is the *second* vertical. If building
-the spine in order, P3 (lattice) → P4 (prompts) → P5 (inference) is the risky path and P2 can
-follow it. Confirm the intended order before starting. Do not skip ahead.
+**NEXT TASK: P3 — identity lattice.** Not yet started.
+
+### Build order (DECIDED 8 Sep 2026 — generation vertical first)
+
+Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
+authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
+
+> P0 ✅ → P1 ✅ → **P3** → **P4a** (TemplateRenderer) → P5 → P6 → P7 → *then* P2 (CrowS-Pairs) →
+> **P4b** (ExtractiveRenderer) → P8 → P9 → P10 → P11 → P12 → P13
+
+**Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
+estimand. Generation-first means a slip costs **breadth** (RQ1's second paradigm — already cuttable
+under the locked scope); extraction-first would mean a slip costs a **claim**. The cost is explicit:
+RQ1/E2 cannot land until P2 + P4b are done, which matches §12's cut order (E2 already ranks below
+E1/B1/B3/E4).
+
+**P4 is split along the renderer seam:** `TemplateRenderer` (**P4a**) injects a cell into a template
+and needs only P3; `ExtractiveRenderer` (**P4b**) derives a cell from a source item and cannot exist
+before a loader, so it rides with P2. Do not skip ahead.
 
 **Hard deadline: FAccT abstract 27 Oct 2026 (mandatory, non-placeholder), paper 3 Nov 2026 — 8 weeks
 from ~8 Sep.** *(Verify the deadline year against the official CFP; these dates may belong to FAccT
@@ -150,11 +165,20 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
 5. **Paper title** is not finalized (distinctiveness risk noted in the deep reference). Working
    repo/package names are `mapping-the-margins` / `margins`. Don't hard-code a paper title anywhere
    load-bearing.
-6. **`pair_pll` scoring shape** (before P6 — W3, on the critical path; surfaced by P1, see
-   `PROJECT_CONTEXT.md` §3): a PLL score compares *two sequences*, so one `ItemScore` per `Response`
-   does not fit. Choose (a) one `Response` carrying two logprob fields, or (b) a paired `ItemScore`
-   variant. **P1 deliberately did not choose** — `schemas.py` encodes neither, so nothing has to be
-   unpicked. Do not defer this past the CrowS-Pairs loader.
+6. ~~**`pair_pll` scoring shape**~~ — **DECIDED 8 Sep 2026: option (a).** One `Response` carries both
+   sequence log-probs (`logprob_stereo` / `logprob_antistereo`, `float | None`, both null on
+   `open_gen`); the scorer reads the preference off that single record. **`ItemScore` stays
+   one-score-per-row.** *Rationale:* a pair is one measurement, so it belongs on one record — a
+   paired `ItemScore` variant would have split the score table into two shapes and forced every
+   downstream consumer (metric layer, Parquet schema, FDR family) to branch on task type. Direction
+   is fixed by the sign convention: `logprob_stereo − logprob_antistereo` is **positive when the
+   model prefers the stereotyping sequence**, i.e. higher = more harm, matching the standardization
+   rule. Implemented in `schemas.py`; the field-freeze test was updated deliberately.
+7. **Paired-task prompt representation** (before P4b/P6 — *not* hit by the generation MVP): decision
+   6 settled the **scoring shape only**. `InferenceBackend.run()` sees only `Prompt`s, and
+   `Prompt.rendered_text` is a single string, so it cannot carry the two sequences a `pair_pll`
+   response needs. Options: a second rendered-text field on `Prompt`, a canonical joined encoding, or
+   a paired-prompt variant. Nothing is encoded yet — do not let this slip past the CrowS-Pairs loader.
 
 ---
 
