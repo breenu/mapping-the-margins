@@ -12,13 +12,19 @@ HOW TO RUN THIS ON KAGGLE  (the reference platform)
 3. Paste this whole file into one code cell, or upload it and `!python kaggle_timing_pilot.py`.
    Both work: pasted into a notebook the script detects the kernel and ignores the kernel's own
    argv, which argparse would otherwise reject.
-4. **Run All.** Expect roughly 20-40 minutes, most of it downloading ~30 GB of weights.
-   Kaggle's image ships no `bitsandbytes`, so the script installs it first, at the exact version
-   `uv.lock` resolves for Linux -- see `ensure_dependencies`. `--no-install` reports instead.
-   If you had already run this cell once *before* that install, restart the session and run again:
-   `transformers` caches whether bitsandbytes exists at import time. The script detects that case
-   and says so rather than failing again ten minutes later.
+4. **Run All**, in a FRESH session. Roughly 20-40 minutes, most of it downloading ~30 GB.
+   The first thing it does is align the inference stack with `uv.lock`: Kaggle ships no
+   `bitsandbytes` at all, and ships a `transformers` **major version this project does not use**.
+   Both are installed at their locked versions before any weight download -- see
+   `ensure_dependencies`; `--no-install` reports the exact pip command instead of running it.
+   A fresh session matters: Python keeps whatever it already imported, so a kernel that has already
+   run this cell will keep the old `transformers` no matter what pip does. The script detects that
+   and tells you to restart rather than failing ten minutes later.
 5. Bring back the printed table and `pilot_results.json`.
+
+If the 8B load runs out of VRAM: an 8B at NF4 needs ~5.6 GB and a T4 has ~15, so an OOM means the
+weights were not being quantized -- check the `environment:` line shows the pinned transformers.
+`--device-map auto` spreads the model over both T4s as a last resort.
 
 Restricting to one model if the session is tight -- change the last line of this file to:
     main(["--models", "llama31_8b_instruct"])
@@ -174,8 +180,12 @@ PILOT_META: dict[str, Any] = {
 }
 PINNED_PACKAGES: dict[str, str] = {
     "bitsandbytes": "0.47.0",
+    "huggingface-hub": "0.36.2",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.22.2",
+    "transformers": "4.57.6",
 }
-RECORDED_PACKAGES: tuple[str, ...] = ("torch", "transformers", "accelerate", "huggingface_hub")
+RECORDED_PACKAGES: tuple[str, ...] = ("torch", "accelerate")
 MODELS: tuple[dict[str, str], ...] = (
     {
         "license": "llama3.1",
@@ -510,34 +520,44 @@ def ensure_dependencies(*, install: bool = True) -> dict[str, str | None]:
     Returns:
         ``{package: version or None}`` for every pinned and recorded package, as finally installed.
     """
+    import importlib
     import subprocess
 
+    wanted: list[str] = []
     for package, pinned in PINNED_PACKAGES.items():
         current = package_version(package)
         if current == pinned:
             print(f"  {package}=={current} (matches uv.lock)")
             continue
         found = f"found {current}" if current else "not installed"
-        if not install:
-            raise SystemExit(
-                f"{package} {found}, need =={pinned} (from uv.lock). Re-run without --no-install, "
-                f"or install it yourself:  pip install {package}=={pinned}"
-            )
-        print(f"  {package}: {found} -> installing =={pinned} (pinned in uv.lock)", flush=True)
-        subprocess.check_call(
-            # --no-deps deliberately: bitsandbytes depends on torch, and letting pip resolve that
-            # on a notebook host risks swapping out the image's CUDA-matched torch build for a
-            # generic one -- a multi-GB download that can leave the GPU unusable. torch and numpy
-            # are already present; `_verify_bitsandbytes_visible_to_transformers` below is what
-            # catches it if a dependency really is missing.
-            [sys.executable, "-m", "pip", "install", "-q", "--no-deps", f"{package}=={pinned}"]
+        print(f"  {package}: {found} -> need =={pinned}")
+        wanted.append(f"{package}=={pinned}")
+
+    if wanted and not install:
+        raise SystemExit(
+            "These do not match uv.lock: "
+            + ", ".join(wanted)
+            + "\nRe-run without --no-install, or install them yourself:\n  pip install --no-deps "
+            + " ".join(wanted)
         )
-        import importlib
 
+    if wanted:
+        print(f"  installing {len(wanted)} pinned package(s) in one step ...", flush=True)
+        subprocess.check_call(
+            # ONE pip call so the pinned set is resolved together rather than one package at a
+            # time (a per-package install can leave transformers briefly paired with the wrong
+            # tokenizers). --no-deps deliberately: letting pip resolve these would let it swap the
+            # image's CUDA-matched **torch** for a generic build -- a multi-GB download that can
+            # leave the GPU unusable, on a host whose only purpose here is measuring GPU
+            # throughput. Every transitive dependency that actually matters is named in
+            # PINNED_PACKAGES, and _verify_pinned_stack_is_usable() below catches anything missed.
+            [sys.executable, "-m", "pip", "install", "-q", "--no-deps", *wanted]
+        )
         importlib.invalidate_caches()
-        print(f"  {package}=={package_version(package)} installed")
+        for package in PINNED_PACKAGES:
+            print(f"  {package}=={package_version(package)} installed")
 
-    _verify_bitsandbytes_visible_to_transformers()
+    _verify_pinned_stack_is_usable()
 
     versions: dict[str, str | None] = {
         name: package_version(name) for name in (*PINNED_PACKAGES, *RECORDED_PACKAGES)
@@ -547,23 +567,40 @@ def ensure_dependencies(*, install: bool = True) -> dict[str, str | None]:
     return versions
 
 
-def _verify_bitsandbytes_visible_to_transformers() -> None:
-    """Ask transformers itself whether the 4-bit path will work, before anything downloads.
+_RESTART_HINT = (
+    "  Restart the session and Run All again -- the installs persist, so this happens once.\n"
+    "  Kaggle: Run -> Restart & clear cell outputs.   Colab: Runtime -> Restart session."
+)
 
-    This is the check that matters: ``transformers`` decides whether bitsandbytes is available when
-    it is FIRST imported, so two situations produce the same ``ImportError`` deep inside
-    ``from_pretrained``, ten minutes and ~16 GB later:
 
-    * bitsandbytes was never installed (Kaggle's image ships none), or
-    * it was installed just now, but this cell had already run once and transformers is still in
-      ``sys.modules`` holding the old answer -- which looks like the install failed. It did not; the
-      kernel needs restarting.
+def _verify_pinned_stack_is_usable() -> None:
+    """Check the pinned stack is what is actually LIVE in this kernel, before anything downloads.
 
-    Calling it here costs one transformers import that the run needs anyway, and converts both into
-    an immediate, actionable message.
+    Two distinct ways a run reaches the same failure ten minutes and ~16 GB later, both caught here:
+
+    * **A stale import.** Python does not reload a module because pip replaced it on disk. If this
+      cell already ran once -- against Kaggle's transformers 5.0.0, say -- that version is still in
+      ``sys.modules``, and the downgrade this preflight just performed has no effect until the
+      kernel restarts. It looks exactly like the install failed. It did not.
+    * **bitsandbytes invisible.** ``transformers`` decides whether bitsandbytes is available when it
+      is FIRST imported, so an install that came afterwards is not seen.
+
+    Costs one transformers import that the run needs anyway, and turns both into an immediate,
+    actionable message instead of a wasted session.
     """
     if not PINNED_PACKAGES:
         return
+
+    for package, pinned in PINNED_PACKAGES.items():
+        module = sys.modules.get(package.replace("-", "_"))
+        live = getattr(module, "__version__", None) if module is not None else None
+        if live is not None and live != pinned:
+            raise SystemExit(
+                f"{package} {live} is already imported in this kernel, but the pinned version is "
+                f"{pinned}. Python will keep using the imported one no matter what pip just did.\n"
+                + _RESTART_HINT
+            )
+
     try:
         from transformers.utils import is_bitsandbytes_available  # type: ignore[attr-defined]
 
@@ -577,9 +614,8 @@ def _verify_bitsandbytes_visible_to_transformers() -> None:
         "transformers cannot see bitsandbytes, so the 4-bit load would fail with an ImportError "
         "after the weight download.\n"
         f"  Installed: bitsandbytes=={package_version('bitsandbytes')}\n"
-        "  If this cell already ran once BEFORE that install, transformers cached the old answer: "
-        "restart the session and Run All again.\n"
-        "  Kaggle: Run -> Restart & clear cell outputs.   Colab: Runtime -> Restart session."
+        "  If this cell already ran once BEFORE that install, transformers cached the old answer.\n"
+        + _RESTART_HINT
     )
 
 
@@ -601,15 +637,38 @@ def require_cuda() -> str:
     return str(torch.cuda.get_device_name(0))
 
 
-def load_model(entry: dict[str, str], token: str | None) -> tuple[Any, Any, float, str]:
+def cuda_compute_dtype(torch: Any) -> Any:
+    """bfloat16 on Ampere+, float16 before it -- mirrors ``margins.inference.backend``.
+
+    **bfloat16 needs compute capability 8.0, and a free-tier Kaggle T4 is 7.5 (Turing).** Handing
+    bitsandbytes a bf16 compute dtype there is silently wrong: no API rejects it. Chosen from the
+    device so the same code is right on a T4 and on an A100.
+    """
+    major, _minor = torch.cuda.get_device_capability()
+    return torch.bfloat16 if major >= 8 else torch.float16
+
+
+def load_model(
+    entry: dict[str, str], token: str | None, device_map: str = "single"
+) -> tuple[Any, Any, float, str]:
     """Load a checkpoint at 4-bit NF4, pinned to its resolved revision."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+    dtype = cuda_compute_dtype(torch)
+    free, total = torch.cuda.mem_get_info()
+    print(
+        f"  dtype={str(dtype).removeprefix('torch.')} "
+        f"(capability {'.'.join(map(str, torch.cuda.get_device_capability()))}), "
+        f"VRAM free {free / 1024**3:.1f} / {total / 1024**3:.1f} GiB",
+        flush=True,
+    )
+
     quant_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
+        # Must match `dtype`: mismatched compute and storage types are a silent correctness bug.
+        bnb_4bit_compute_dtype=dtype,
         # Off, matching margins.inference.backend: the recorded constant is plain NF4.
         bnb_4bit_use_double_quant=False,
     )
@@ -619,13 +678,34 @@ def load_model(entry: dict[str, str], token: str | None) -> tuple[Any, Any, floa
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        entry["model_id"],
-        revision=entry["revision"],
-        token=token,
-        quantization_config=quant_config,
-        device_map={"": 0},
-    )
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            entry["model_id"],
+            revision=entry["revision"],
+            token=token,
+            dtype=dtype,
+            quantization_config=quant_config,
+            # Single GPU by default: an 8B at NF4 is ~5.6 GB and fits one T4 with room to spare, and
+            # keeping it on one device keeps the per-prompt timing free of inter-GPU transfer.
+            # `--device-map auto` spreads it over both T4s if a host needs that.
+            device_map="auto" if device_map == "auto" else {"": 0},
+        )
+    except (RuntimeError, torch.cuda.OutOfMemoryError) as error:
+        free, total = torch.cuda.mem_get_info()
+        raise SystemExit(
+            f"Loading {entry['model_id']} failed: {error}\n\n"
+            f"  VRAM now free {free / 1024**3:.1f} / {total / 1024**3:.1f} GiB.\n"
+            "  An 8B model at NF4 needs roughly 5.6 GB, so running out on a 15 GB card means the "
+            "weights were NOT being quantized.\n"
+            "  Most likely causes, in order:\n"
+            "    1. A transformers version whose quantized-loading path this pilot has not been "
+            "run against. The preflight pins transformers to uv.lock for exactly this reason -- "
+            "check the `environment:` line above says the pinned version.\n"
+            "    2. Something else already resident on the GPU (a previous run in this kernel). "
+            "Restart the session.\n"
+            "    3. Genuinely too little VRAM: re-run with --device-map auto to spread the model "
+            "over both T4s.\n"
+        ) from error
     model.eval()
     torch.cuda.synchronize()
     return tokenizer, model, time.perf_counter() - started, "nf4"
@@ -646,7 +726,10 @@ def format_prompt(tokenizer: Any, text: str) -> str:
 
 
 def time_model(
-    entry: dict[str, str], prompts: list[tuple[str, str]], token: str | None
+    entry: dict[str, str],
+    prompts: list[tuple[str, str]],
+    token: str | None,
+    device_map: str = "single",
 ) -> ModelTiming:
     """Load one checkpoint and time real generation over the sampled prompts."""
     import torch
@@ -654,7 +737,7 @@ def time_model(
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
 
-    tokenizer, model, load_seconds, quant = load_model(entry, token)
+    tokenizer, model, load_seconds, quant = load_model(entry, token, device_map)
     print(f"  loaded in {load_seconds:.1f}s (quant={quant})", flush=True)
 
     generation_kwargs: dict[str, Any] = {
@@ -831,6 +914,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", type=Path, default=Path("pilot_results.json"))
     parser.add_argument(
+        "--device-map",
+        choices=("single", "auto"),
+        default="single",
+        help="'auto' spreads the model over every visible GPU; use it only if one card is short.",
+    )
+    parser.add_argument(
         "--no-install",
         action="store_true",
         help="Report a missing pinned package instead of installing it, and stop.",
@@ -879,7 +968,7 @@ def main(argv: list[str] | None = None) -> int:
     timings: list[ModelTiming] = []
     for entry in selected:
         print(f"[{entry['name']}] {entry['model_id']}@{entry['revision'][:12]}", flush=True)
-        timings.append(time_model(entry, prompts, token))
+        timings.append(time_model(entry, prompts, token, args.device_map))
 
     print_measurements(timings, gpu)
     rows = print_extrapolation(timings, platform)

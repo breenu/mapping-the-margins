@@ -54,12 +54,25 @@ PILOT_SAMPLE_SIZE = 50
 #: "to make it work"; installing the exact version the locked Linux environment resolves to is the
 #: opposite of unpinning, and it is the only way to make the notebook host resemble that
 #: environment. A hand-typed version here would drift from the lock silently.
-LOCK_PINNED_PACKAGES: tuple[str, ...] = ("bitsandbytes",)
+#: `transformers` and its own pinned chain are here for a second reason. Kaggle's image now ships
+#: **transformers 5.0.0**, a major version this project has never run: its rewritten loading path
+#: reported CONVERSION errors and OOMed an 8B NF4 load on a 14.7 GB T4, where NF4 needs ~5.6 GB --
+#: i.e. it was materialising weights largely unquantized. Measuring throughput on a stack we do not
+#: ship would also answer the wrong question. `tokenizers`, `huggingface-hub` and `safetensors` come
+#: along because transformers 4.57.6 will not import against the 1.x/0.23 versions Kaggle installs.
+LOCK_PINNED_PACKAGES: tuple[str, ...] = (
+    "bitsandbytes",
+    "transformers",
+    "tokenizers",
+    "huggingface-hub",
+    "safetensors",
+)
 
-#: Packages whose installed version the pilot RECORDS but does not touch. Reinstalling torch on a
-#: notebook host is slow and can break its CUDA build, and throughput is not sensitive enough to
-#: these to justify it -- but the measurement is only interpretable if the versions are known.
-RECORDED_PACKAGES: tuple[str, ...] = ("torch", "transformers", "accelerate", "huggingface_hub")
+#: Packages whose installed version the pilot RECORDS but does not touch. Reinstalling **torch** on
+#: a notebook host is slow and can break its CUDA build, and throughput is not sensitive enough to
+#: the exact torch build to justify that risk -- but the measurement is only interpretable if the
+#: versions are known, so they are reported and written into pilot_results.json.
+RECORDED_PACKAGES: tuple[str, ...] = ("torch", "accelerate")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,12 +92,18 @@ extrapolates the E1 budget in GPU-hours and as a share of Kaggle's ~30 GPU-h/wee
 1. **Settings -> Accelerator: GPU T4 x2**, and **Internet: On**.
 2. **Add-ons -> Secrets:** add `HF_TOKEN` (a Hugging Face token whose account has **accepted the
    Meta Llama licence** -- `Llama-3.1-8B-Instruct` is gated) and attach it to this notebook.
-3. **Run All.** Roughly 20-40 minutes, most of it downloading ~30 GB of weights.
-   Kaggle ships no `bitsandbytes`; the first thing the cell does is install it at the exact version
-   `uv.lock` pins for Linux. **If you already ran this cell once before that install**, restart the
-   session and run again -- `transformers` caches whether bitsandbytes exists when it is first
-   imported. The script detects that and tells you, instead of failing ten minutes later.
+3. **Run All, in a fresh session.** Roughly 20-40 minutes, most of it downloading ~30 GB.
+   The cell first aligns the inference stack with `uv.lock`: Kaggle ships no `bitsandbytes` at all,
+   and ships a `transformers` **major version this project does not use**, whose quantized-loading
+   path OOMed an 8B NF4 load on a T4. Both are installed at their locked versions before any weight
+   download. **A fresh session matters** -- Python keeps whatever it already imported, so a kernel
+   that has run this cell before will keep the old `transformers` no matter what pip does. The
+   script detects that and tells you to restart, instead of failing ten minutes later.
 4. Bring back the printed table and the `pilot_results.json` it writes.
+
+Out of VRAM on the 8B? An 8B at NF4 needs ~5.6 GB and a T4 has ~15, so an OOM means the weights were
+not being quantized -- check the `environment:` line shows the pinned transformers. As a last
+resort, `main(["--device-map", "auto"])` spreads the model across both T4s.
 
 Tight on session time? Change the last line to
 `main(["--models", "llama31_8b_instruct"])` to time one model instead of two.

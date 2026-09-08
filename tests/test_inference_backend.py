@@ -143,6 +143,63 @@ def test_a_prompt_stamped_for_another_profile_is_refused(backend: Any) -> None:
 
 
 # --------------------------------------------------------------------------------------
+# Compute dtype must come from the device, not from a constant
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("capability", "expected", "gpu"),
+    [
+        ((7, 5), "float16", "Tesla T4 (Turing) -- the project's reference hardware, NO bf16"),
+        ((8, 0), "bfloat16", "A100 (Ampere)"),
+        ((8, 6), "bfloat16", "RTX 3090 (Ampere)"),
+        ((9, 0), "bfloat16", "H100 (Hopper)"),
+        ((6, 1), "float16", "GTX 1080 (Pascal)"),
+    ],
+)
+def test_compute_dtype_is_chosen_from_the_device(
+    capability: tuple[int, int], expected: str, gpu: str
+) -> None:
+    """bfloat16 requires compute capability 8.0, and a free-tier Kaggle T4 is 7.5.
+
+    Hardcoding bf16 is silently wrong there -- nothing in the bitsandbytes or transformers API
+    rejects it -- and the T4 is exactly where the confirmatory sweep runs. Parametrised over real
+    cards because the CI box and the dev box have no GPU at all, so this is the only way the rule
+    gets checked before it reaches Kaggle.
+    """
+    import torch
+
+    from margins.inference.backend import cuda_compute_dtype
+
+    fake = SimpleNamespace(
+        cuda=SimpleNamespace(get_device_capability=lambda: capability),
+        bfloat16=torch.bfloat16,
+        float16=torch.float16,
+    )
+    chosen = cuda_compute_dtype(fake)
+    assert str(chosen).removeprefix("torch.") == expected, f"wrong dtype for {gpu}"
+
+
+def test_the_quantization_compute_dtype_matches_the_model_dtype(spec: ModelSpec) -> None:
+    """A compute dtype that disagrees with the weights' dtype is a silent correctness bug."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "src/margins/inference/backend.py").read_text(
+        encoding="utf-8"
+    )
+    # Code lines only: the docstring quotes the wrong form (inside ``...``) to explain the bug.
+    assignments = [
+        line.strip()
+        for line in source.splitlines()
+        if "bnb_4bit_compute_dtype=" in line and "``" not in line
+    ]
+    assert assignments == ["bnb_4bit_compute_dtype=dtype,"], (
+        "the bitsandbytes compute dtype must be the same `dtype` chosen for the device, never a "
+        f"hardcoded bfloat16. Found: {assignments}"
+    )
+
+
+# --------------------------------------------------------------------------------------
 # The Response is self-describing
 # --------------------------------------------------------------------------------------
 

@@ -243,7 +243,7 @@ def test_an_already_satisfied_pin_installs_nothing(
     pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(pilot, "package_version", lambda name: pilot.PINNED_PACKAGES.get(name))
-    monkeypatch.setattr(pilot, "_verify_bitsandbytes_visible_to_transformers", lambda: None)
+    monkeypatch.setattr(pilot, "_verify_pinned_stack_is_usable", lambda: None)
     versions = pilot.ensure_dependencies(install=True)
     assert versions["bitsandbytes"] == pilot.PINNED_PACKAGES["bitsandbytes"]
 
@@ -259,7 +259,7 @@ def test_transformers_is_asked_whether_the_4bit_path_works(
     pilot: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _fake_transformers(monkeypatch, available=True)
-    pilot._verify_bitsandbytes_visible_to_transformers()
+    pilot._verify_pinned_stack_is_usable()
     assert "can see bitsandbytes" in capsys.readouterr().out
 
 
@@ -274,7 +274,60 @@ def test_bitsandbytes_invisible_to_transformers_fails_before_downloading(
     """
     _fake_transformers(monkeypatch, available=False)
     with pytest.raises(SystemExit, match=r"(?i)restart the session"):
-        pilot._verify_bitsandbytes_visible_to_transformers()
+        pilot._verify_pinned_stack_is_usable()
+
+
+def test_the_whole_inference_stack_is_pinned_not_just_bitsandbytes(pilot: ModuleType) -> None:
+    """Kaggle ships transformers 5.x; this project locks 4.57.6.
+
+    Measuring throughput on a major version we do not ship answers the wrong question -- and in
+    practice its rewritten quantized-loading path OOMed an 8B NF4 load on a T4, where NF4 needs
+    ~5.6 GB of 15. tokenizers/huggingface-hub/safetensors ride along because transformers will not
+    import against the versions Kaggle pairs with 5.x.
+    """
+    for package in ("bitsandbytes", "transformers", "tokenizers", "huggingface-hub", "safetensors"):
+        assert package in pilot.PINNED_PACKAGES, f"{package} must be pinned for the pilot"
+    assert pilot.PINNED_PACKAGES["transformers"].startswith("4."), (
+        "the pilot must run the transformers major version this project locks"
+    )
+    # torch is deliberately NOT pinned: replacing a host's CUDA-matched build is the bigger risk.
+    assert "torch" not in pilot.PINNED_PACKAGES
+    assert "torch" in pilot.RECORDED_PACKAGES
+
+
+def test_a_stale_import_of_a_pinned_package_demands_a_restart(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pip replacing a module on disk does not change what Python has already imported.
+
+    A kernel that ran this cell once already holds Kaggle's transformers 5.x, and the downgrade has
+    no effect until it restarts -- which looks exactly like the install failed.
+    """
+    stale = ModuleType("transformers")
+    stale.__version__ = "5.0.0"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", stale)
+
+    with pytest.raises(SystemExit, match=r"already imported in this kernel"):
+        pilot._verify_pinned_stack_is_usable()
+
+
+def test_the_pilot_picks_its_compute_dtype_from_the_device(pilot: ModuleType) -> None:
+    """Mirrors margins.inference.backend: a T4 is Turing (7.5) and has no bfloat16."""
+    from types import SimpleNamespace
+
+    torch = pytest.importorskip("torch")
+    for capability, expected in (((7, 5), "float16"), ((8, 0), "bfloat16")):
+        fake = SimpleNamespace(
+            cuda=SimpleNamespace(get_device_capability=lambda c=capability: c),
+            bfloat16=torch.bfloat16,
+            float16=torch.float16,
+        )
+        chosen = pilot.cuda_compute_dtype(fake)
+        assert str(chosen).removeprefix("torch.") == expected
+
+    source = PILOT_SCRIPT.read_text(encoding="utf-8")
+    assert "bnb_4bit_compute_dtype=dtype" in source
+    assert "bnb_4bit_compute_dtype=torch.bfloat16" not in source
 
 
 def test_the_install_does_not_let_pip_touch_torch(pilot: ModuleType) -> None:
@@ -284,7 +337,7 @@ def test_the_install_does_not_let_pip_touch_torch(pilot: ModuleType) -> None:
     here is measuring GPU throughput.
     """
     source = PILOT_SCRIPT.read_text(encoding="utf-8")
-    install = source[source.index("subprocess.check_call(") :][:600]
+    install = source[source.index("subprocess.check_call(") :][:1600]
     assert '"--no-deps"' in install, "pip must not be allowed to resolve torch on a notebook host"
 
 
@@ -292,7 +345,9 @@ def test_the_measurement_environment_is_recorded(pilot: ModuleType) -> None:
     """A throughput figure is uninterpretable without the stack that produced it."""
     source = PILOT_SCRIPT.read_text(encoding="utf-8")
     assert '"package_versions": package_versions' in source
-    assert set(pilot.RECORDED_PACKAGES) >= {"torch", "transformers"}
+    # transformers is PINNED rather than merely recorded; both sets land in the JSON.
+    reported = set(pilot.RECORDED_PACKAGES) | set(pilot.PINNED_PACKAGES)
+    assert reported >= {"torch", "transformers", "bitsandbytes"}
 
 
 def test_platform_is_detected_and_recorded(pilot: ModuleType) -> None:

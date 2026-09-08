@@ -52,6 +52,7 @@ __all__ = [
     "HFBackend",
     "LoadReport",
     "SequenceLogprob",
+    "cuda_compute_dtype",
     "make_response_id",
 ]
 
@@ -68,6 +69,22 @@ _DATE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b\d{1,2} [A-Z][a-z]{2} \d{4}\b"),
     re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
 )
+
+
+def cuda_compute_dtype(torch: Any) -> Any:
+    """The float type to compute in on THIS GPU: bfloat16 on Ampere+, float16 before it.
+
+    **bfloat16 requires compute capability 8.0.** The reference hardware for this project is a
+    free-tier Kaggle **T4**, which is Turing (7.5) and has no bf16 support at all. Handing
+    ``bnb_4bit_compute_dtype=torch.bfloat16`` to bitsandbytes there is not a performance choice, it
+    is a wrong one -- and it is silent, because nothing in the API rejects it.
+
+    Selected from the device rather than hardcoded, so the same code is correct on a T4 and on the
+    A100-class card a reproducer might use. The dtype actually chosen is recorded in
+    :class:`LoadReport` and in the run manifest, because it is part of what produced the numbers.
+    """
+    major, _minor = torch.cuda.get_device_capability()
+    return torch.bfloat16 if major >= 8 else torch.float16
 
 
 def make_response_id(
@@ -258,8 +275,9 @@ class HFBackend:
         quant_actual, fallback_reason = self._resolve_quant()
         device = self._device_override or ("cuda" if torch.cuda.is_available() else "cpu")
         # float32 on CPU: bf16 CPU kernels are slower AND vary more across builds, and the CPU path
-        # is exactly where the bit-level determinism claim lives.
-        dtype = torch.bfloat16 if device == "cuda" else torch.float32
+        # is exactly where the bit-level determinism claim lives. On CUDA the type is chosen from
+        # the device -- see cuda_compute_dtype; a T4 cannot do bf16 at all.
+        dtype = cuda_compute_dtype(torch) if device == "cuda" else torch.float32
 
         if self._tokenizer is None:
             self._tokenizer = AutoTokenizer.from_pretrained(
@@ -279,13 +297,16 @@ class HFBackend:
             if quant_actual == "nf4":
                 from transformers import BitsAndBytesConfig
 
-                # The recorded constant is plain NF4 with a bf16 compute dtype. Double quantization
-                # is deliberately OFF: it would make "4-bit NF4" ambiguous in the manifest, and the
-                # ~0.4 GB it saves is not needed for an 8B model on a 16 GB T4.
+                # The recorded constant is plain NF4. Double quantization is deliberately OFF: it
+                # would make "4-bit NF4" ambiguous in the manifest, and the ~0.4 GB it saves is not
+                # needed for an 8B model on a 16 GB T4.
+                #
+                # The compute dtype MUST match `dtype` and must come from the device: a T4 has no
+                # bf16, and passing it there is silently wrong rather than an error.
                 kwargs["quantization_config"] = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
+                    bnb_4bit_compute_dtype=dtype,
                     bnb_4bit_use_double_quant=False,
                 )
                 kwargs["device_map"] = {"": 0}
