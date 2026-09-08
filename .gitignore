@@ -42,3 +42,6 @@ figures/*.png
 # OS
 .DS_Store
 Thumbs.db
+
+# Machine-local Claude Code permission state — not project config.
+.claude/settings.local.json
