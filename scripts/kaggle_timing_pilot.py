@@ -17,9 +17,10 @@ HOW TO RUN THIS ON KAGGLE  (the reference platform)
    `bitsandbytes` at all, and ships a `transformers` **major version this project does not use**.
    Both are installed at their locked versions before any weight download -- see
    `ensure_dependencies`; `--no-install` reports the exact pip command instead of running it.
-   A fresh session matters: Python keeps whatever it already imported, so a kernel that has already
-   run this cell will keep the old `transformers` no matter what pip does. The script detects that
-   and tells you to restart rather than failing ten minutes later.
+   Python keeps whatever it already imported, so a package the host imported at kernel startup
+   (Colab preimports `huggingface_hub`) or a cell that has run once already would otherwise keep the
+   old version no matter what pip did. The preflight detects that and **reloads those modules in
+   place**, before any weight download; it asks for a restart only if the reload does not take.
 5. Bring back the printed table and `pilot_results.json`.
 
 If the 8B load runs out of VRAM: an 8B at NF4 needs ~5.6 GB and a T4 has ~15, so an OOM means the
@@ -573,33 +574,135 @@ _RESTART_HINT = (
 )
 
 
+def _module_name(package: str) -> str:
+    """Import name for a distribution name (``huggingface-hub`` -> ``huggingface_hub``)."""
+    return package.replace("-", "_")
+
+
+def _live_version(package: str) -> str | None:
+    """Version of ``package`` **as already imported in this process**, or None if not imported.
+
+    Deliberately not ``importlib.metadata.version``: that reads the metadata pip just wrote to disk,
+    which is exactly the thing that can disagree with what Python is actually running.
+    """
+    module = sys.modules.get(_module_name(package))
+    live = getattr(module, "__version__", None) if module is not None else None
+    return str(live) if live is not None else None
+
+
+def _stale_imports() -> dict[str, str]:
+    """Pinned packages already imported at a version other than the pin."""
+    stale: dict[str, str] = {}
+    for package, pinned in PINNED_PACKAGES.items():
+        live = _live_version(package)
+        if live is not None and live != pinned:
+            stale[package] = live
+    return stale
+
+
+def _purge_modules(packages: set[str]) -> None:
+    """Drop ``packages`` and every submodule of them from ``sys.modules``.
+
+    Safe *here* specifically because of where this runs: the only thing imported so far is torch
+    (via ``require_cuda``), which holds no reference to any of these, and ``transformers`` is
+    imported for the first time immediately afterwards -- so it binds to the reloaded stack rather
+    than to the module objects being dropped.
+    """
+    roots = {_module_name(package) for package in packages}
+    for name in [name for name in sys.modules if name.split(".")[0] in roots]:
+        del sys.modules[name]
+
+
+def _reimport(package: str) -> str | None:
+    """Import ``package`` fresh and report its live version, or None if it will not import."""
+    import importlib
+
+    try:
+        module = importlib.import_module(_module_name(package))
+    except Exception:
+        return None
+    live = getattr(module, "__version__", None)
+    return str(live) if live is not None else None
+
+
+def _import_diagnostics(package: str) -> str:
+    """Where this package is actually coming from -- the only thing that explains a failed reload.
+
+    A reload that does not take means the files on ``sys.path`` are not the ones pip reported
+    installing: a second copy earlier on the path, or an install that landed in a directory this
+    interpreter does not read. Printing the paths turns that from a guess into a fact.
+    """
+    import importlib.metadata
+
+    module = sys.modules.get(_module_name(package))
+    lines = [
+        f"    imported {_live_version(package)} from {getattr(module, '__file__', 'nowhere')}",
+        f"    pip metadata reports {package_version(package)}",
+    ]
+    copies = []
+    for dist in importlib.metadata.distributions():
+        try:
+            name = (dist.metadata["Name"] or "").lower().replace("_", "-")
+        except Exception:  # a broken .dist-info on the host, not our problem to fix
+            continue
+        if name == package:
+            copies.append(f"{dist.version} in {dist.locate_file('')}")
+    lines.append(f"    {len(copies)} copy(ies) visible: " + ("; ".join(copies) or "none"))
+    return "\n".join(lines)
+
+
 def _verify_pinned_stack_is_usable() -> None:
     """Check the pinned stack is what is actually LIVE in this kernel, before anything downloads.
 
     Two distinct ways a run reaches the same failure ten minutes and ~16 GB later, both caught here:
 
-    * **A stale import.** Python does not reload a module because pip replaced it on disk. If this
-      cell already ran once -- against Kaggle's transformers 5.0.0, say -- that version is still in
-      ``sys.modules``, and the downgrade this preflight just performed has no effect until the
-      kernel restarts. It looks exactly like the install failed. It did not.
+    * **A stale import.** Python does not reload a module because pip replaced it on disk. The host
+      may have imported ``huggingface_hub`` at kernel startup, or this cell may have run once
+      already against Kaggle's transformers 5.0.0; either way the version in ``sys.modules`` is the
+      one that will be used, and the downgrade this preflight just performed has no effect on it.
+      Recovered in place by dropping those modules and importing them again -- a restart is asked
+      for only when that does not take, because on a host that preimports the package at startup a
+      restart alone does not fix it and the loop is not obvious from the message.
     * **bitsandbytes invisible.** ``transformers`` decides whether bitsandbytes is available when it
-      is FIRST imported, so an install that came afterwards is not seen.
+      is FIRST imported, so an install that came afterwards is not seen. The reload above also
+      clears that cached answer.
 
     Costs one transformers import that the run needs anyway, and turns both into an immediate,
-    actionable message instead of a wasted session.
+    actionable outcome instead of a wasted session.
     """
     if not PINNED_PACKAGES:
         return
 
-    for package, pinned in PINNED_PACKAGES.items():
-        module = sys.modules.get(package.replace("-", "_"))
-        live = getattr(module, "__version__", None) if module is not None else None
-        if live is not None and live != pinned:
+    stale = _stale_imports()
+    if stale:
+        import importlib
+
+        described = ", ".join(f"{package} {live}" for package, live in sorted(stale.items()))
+        print(f"  stale in this kernel: {described} -- reloading in place ...")
+        # transformers goes too whenever anything under it moved: it caches the hub, tokenizers and
+        # safetensors modules it imported, so reloading those without it leaves a mixed stack.
+        dependents = ({"transformers"} & set(sys.modules)) - set(stale)
+        _purge_modules(set(stale) | dependents)
+        importlib.invalidate_caches()
+
+        failed = {}
+        for package in sorted(stale):
+            live = _reimport(package)
+            if live != PINNED_PACKAGES[package]:
+                failed[package] = live or "would not import"
+        if failed:
             raise SystemExit(
-                f"{package} {live} is already imported in this kernel, but the pinned version is "
-                f"{pinned}. Python will keep using the imported one no matter what pip just did.\n"
-                + _RESTART_HINT
+                "these are still live in this kernel at the wrong version after reloading:\n"
+                + "\n".join(
+                    f"  {package}: {live}, but the pinned version is {PINNED_PACKAGES[package]}\n"
+                    + _import_diagnostics(package)
+                    for package, live in sorted(failed.items())
+                )
+                + "\n\n  pip reported installing the pinned versions, so if the paths above show a "
+                "second\n  copy earlier on sys.path, that copy is what wins and pip's install is "
+                "being shadowed.\n" + _RESTART_HINT
             )
+        print("  reloaded: the pinned versions are the ones this kernel will use")
 
     try:
         from transformers.utils import is_bitsandbytes_available  # type: ignore[attr-defined]

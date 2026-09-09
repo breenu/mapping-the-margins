@@ -295,20 +295,63 @@ def test_the_whole_inference_stack_is_pinned_not_just_bitsandbytes(pilot: Module
     assert "torch" in pilot.RECORDED_PACKAGES
 
 
-def test_a_stale_import_of_a_pinned_package_demands_a_restart(
-    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+def test_a_stale_import_of_a_pinned_package_is_reloaded_in_place(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """pip replacing a module on disk does not change what Python has already imported.
 
-    A kernel that ran this cell once already holds Kaggle's transformers 5.x, and the downgrade has
-    no effect until it restarts -- which looks exactly like the install failed.
+    Two hosts hit this. A kernel that ran this cell once already holds Kaggle's transformers 5.x;
+    and Colab imports ``huggingface_hub`` at kernel STARTUP, so the pin is stale before the cell
+    runs at all. The second one is why a restart is not the first answer -- the host preimports it
+    again on the next session, which reported as "I restarted many times and it still fails".
+
+    Reloading happens before any weight download, so getting it wrong costs seconds, and the version
+    is re-checked afterwards rather than assumed.
     """
     stale = ModuleType("transformers")
     stale.__version__ = "5.0.0"  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "transformers", stale)
+    pinned = pilot.PINNED_PACKAGES["transformers"]
 
-    with pytest.raises(SystemExit, match=r"already imported in this kernel"):
+    def reloaded(package: str) -> str:
+        assert package == "transformers", f"reloaded the wrong package: {package}"
+        assert "transformers" not in sys.modules, "the stale module must be dropped first"
+        _fake_transformers(monkeypatch, available=True)
+        sys.modules["transformers"].__version__ = pinned  # type: ignore[attr-defined]
+        return str(pinned)
+
+    monkeypatch.setattr(pilot, "_reimport", reloaded)
+    pilot._verify_pinned_stack_is_usable()
+
+    printed = capsys.readouterr().out
+    assert "stale in this kernel: transformers 5.0.0" in printed
+    assert "reloaded" in printed
+    assert "can see bitsandbytes" in printed
+
+
+def test_a_stale_import_that_will_not_reload_demands_a_restart_and_says_where_it_came_from(
+    pilot: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reload that does not take means pip's install is being shadowed on sys.path.
+
+    "Restart the session" alone is the wrong advice there -- it has already been tried. The message
+    has to name the paths, because the paths are the only thing that distinguishes a stale import
+    (restarting fixes it) from a second copy earlier on sys.path (restarting never will).
+    """
+    stale = ModuleType("bitsandbytes")
+    stale.__version__ = "0.99.0"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "bitsandbytes", stale)
+    monkeypatch.setattr(pilot, "_reimport", lambda package: "0.99.0")
+
+    with pytest.raises(SystemExit) as raised:
         pilot._verify_pinned_stack_is_usable()
+
+    message = str(raised.value)
+    assert "bitsandbytes: 0.99.0" in message
+    assert pilot.PINNED_PACKAGES["bitsandbytes"] in message
+    assert "copy(ies) visible" in message, "the failure must name where the package comes from"
+    assert "sys.path" in message
+    assert "Restart the session" in message
 
 
 def test_the_pilot_picks_its_compute_dtype_from_the_device(pilot: ModuleType) -> None:
