@@ -181,6 +181,7 @@ class ResponseScorer:
                     raw=float(raw),
                     # Overwritten by standardize_within_benchmark, which needs the whole set.
                     standardized=float(raw),
+                    prompt_id=prompt.prompt_id,
                     cell_id=prompt.cell_id,
                     benchmark=self._benchmark,
                     model_id=response.model_id,

@@ -45,6 +45,7 @@ def make_score(index: int, *, cell_id: str | None = "alpha=a1", scorer_id: str =
         harm_type="toxicity",
         raw=index * 0.1,
         standardized=index * 0.1 - 0.2,
+        prompt_id=f"p{index}",
         cell_id=cell_id,
         benchmark=BENCHMARK,
         model_id="m",

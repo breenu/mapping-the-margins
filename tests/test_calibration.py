@@ -50,6 +50,7 @@ def make_score(
         harm_type=harm_type,
         raw=raw,
         standardized=raw if standardized is None else standardized,
+        prompt_id=f"p{index}",
         cell_id="alpha=a1|beta=b1" if index % 3 == 0 else "alpha=a1",
         benchmark=BENCHMARK,
         model_id="m",

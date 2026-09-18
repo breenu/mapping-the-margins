@@ -20,8 +20,9 @@ configuration reproduces on free-tier cloud (see [Compute](#compute)).
 | **P3** — identity lattice | ✅ complete |
 | **P4a** — `TemplateRenderer` + the `open_gen` prompt set | ✅ complete |
 | **P5** — inference backend + resumable run harness | ✅ complete |
-| P6 — scoring, triangulation, drift control | in progress |
-| P7 and later | not started |
+| **P6** — scoring, triangulation, drift control | ✅ complete |
+| **P7** — emergence estimator + drift comparison | ✅ complete |
+| P9 and later | not started |
 
 Phases are built strictly in the order in [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
 §5; each is gated by §11.
@@ -148,6 +149,31 @@ uv run python scripts/build_lattice.py --verify # build, verify every term, writ
 - **Artifacts** — `data/scoring/{scores,drift_control}.parquet` (the project's first Parquet:
   determinism here is *round-trip content equality on a sorted frame*, **not** byte identity, because
   Parquet embeds writer metadata) plus a byte-deterministic `agreement.csv` / `agreement.md`.
+
+## What P7 gives you
+
+- **`margins.metrics.EmergenceMetric`** — the primary estimand. Per (benchmark, model, harm type,
+  axis pair) it fits `harm_std ~ A + B + A:B` by OLS over the pair's order-2 cells with sum-to-zero
+  coding; the `A:B` coefficients — and only those — are the emergent intersectional bias. A high
+  harm *level* at a cell is a `CellStat`, not emergence. `harm_std` is the mean of the harm type's
+  scorers' standardized scores per response; a response missing a scorer is refused, not imputed.
+- **Standard errors are cluster-robust by item (prompt); CIs are a cluster bootstrap over items,
+  stratified by cell.** The ~50 sampled generations per prompt are repeated observations, not
+  independent ones, and the tests prove the clustering is doing its job: with a strong item
+  intercept the clustered SE is 2–4× the iid one, grows with seeds per item, and matches the
+  analytic sampling SD. The sandwich is recomputed by hand in the tests.
+- **Test-first, against a closed-form answer.** An injected interaction is recovered; a
+  main-effects-only table whose intersection cell is the *highest* in the table yields γ ≈ 0
+  (the estimator does not fabricate emergence); calibration is checked over repeated datasets.
+- **The drift series is fitted by the same estimator** — per scorer, per control family, never
+  pooled — and reported **beside** the model's interaction as a ratio and a flag. Nothing is
+  subtracted; the two thresholds are declared placeholders until P9 pre-registers them.
+- **Nothing here sets `p`, `q`, `family_size` or `correction`**; `data/metrics/effects.parquet` is
+  the uncorrected table P9's StatsEngine reads.
+
+```bash
+uv run python scripts/run_metrics.py                        # data/metrics/ + a manifest
+```
 
 Scorer pins are **resolved, never authored**, exactly as the P5 model pins are, and both verifiers
 stop rather than substituting:

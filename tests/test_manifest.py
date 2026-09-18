@@ -50,6 +50,7 @@ REQUIRED_FIELDS = {
     # score table is auditable from the committed manifest rather than only from the gitignored
     # artifact. None for runs that score nothing.
     "scoring",
+    "metrics",
 }
 
 FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)

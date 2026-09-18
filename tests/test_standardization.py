@@ -59,6 +59,7 @@ def make_score(
         harm_type=harm_type,
         raw=raw,
         standardized=raw,
+        prompt_id=f"p{index}",
         cell_id="alpha=a1",
         benchmark=benchmark,
         model_id="m",

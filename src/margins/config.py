@@ -94,6 +94,10 @@ DEFAULT_DECODING_NAME: Final[str] = "greedy_v1"
 #: ``tests/test_scoring_manifest.py`` pins it against ``margins.scoring.config.DEFAULT_SCORING``.
 DEFAULT_SCORING_NAME: Final[str] = "default_v1"
 
+#: Default metrics config name. A literal for the same import-cycle reason as the three above;
+#: ``tests/test_metrics_manifest.py`` pins it against ``margins.metrics.config.DEFAULT_METRICS``.
+DEFAULT_METRICS_NAME: Final[str] = "emergence_v1"
+
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -169,6 +173,13 @@ class ExperimentConfig(BaseModel):
         default=DEFAULT_SCORING_NAME,
         min_length=1,
         description="Scoring roster name; its sha256 is recorded in the manifest inputs.",
+    )
+
+    # Added at P7. `_name` suffix once more: `configs/metrics/` is a Hydra config GROUP.
+    metrics_name: str = Field(
+        default=DEFAULT_METRICS_NAME,
+        min_length=1,
+        description="Metrics config name; its sha256 is recorded in the manifest inputs.",
     )
 
     # Open decision #2 was settled at P5 (9 Sep 2026), but these stay optional and are populated
@@ -274,6 +285,54 @@ class ScoringRecord(BaseModel):
     )
 
 
+class MetricsRecord(BaseModel):
+    """What the metric stage actually did (P7): which estimator, under which thresholds.
+
+    The estimator's identity is spelled out in fixed fields rather than left implicit, because an
+    ``EffectEstimate`` carries an estimate, an SE and a CI but not how they were produced -- and a
+    cluster-bootstrap CI over items is a different claim from an iid one. The two drift thresholds
+    are recorded because they are PLACEHOLDERS (TODO(P9): pre-register) and the descriptive-only
+    candidate flags mean nothing without the numbers they were computed against.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    metrics_name: str
+    metrics_version: str
+    metrics_hash: str
+    benchmark: str
+
+    # The estimand, as pre-registered. Constants, not settings: nothing in the config can change
+    # them, and the manifest states them so a reproducer does not have to read the code to know.
+    link: str = "identity"
+    model_formula: str = "harm_std ~ A + B + A:B, over an axis pair's order-2 cells"
+    coding: str = "sum_to_zero (deviation) contrasts; every level's coefficient emitted"
+    harm_series: str = "equal-weight mean of the harm type's scorers' standardized scores"
+    cov_type: str = "cluster-robust, clustered by item (prompt); statsmodels cov_type='cluster'"
+    resampling_unit: str = (
+        "item (prompt), resampled with replacement within each cell; percentile interval"
+    )
+
+    n_resamples: int = Field(ge=1)
+    ci_level: float = Field(gt=0.0, lt=1.0)
+    bootstrap_seed: int = Field(ge=0, le=MAX_SEED)
+    min_cell_n: int = Field(ge=1, description="The powered/descriptive threshold used.")
+    comparable_ratio: float = Field(gt=0.0, description="PLACEHOLDER drift threshold used.")
+    family_disagreement_ratio: float = Field(ge=1.0, description="PLACEHOLDER threshold used.")
+
+    n_pairs: int = Field(ge=0)
+    n_effects: int = Field(ge=0)
+    n_not_estimable: int = Field(ge=0, description="Fits reported as not estimable (any series).")
+    n_drift_fits: int = Field(ge=0)
+    descriptive_only_candidates: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Harm types with a scorer whose drift interaction is comparable to the model's."
+        ),
+    )
+    n_family_disagreements: int = Field(ge=0)
+
+
 class RunManifest(BaseModel):
     """Everything needed to reconstruct a run, including what could not be determined.
 
@@ -310,6 +369,13 @@ class RunManifest(BaseModel):
         description=(
             "What the scoring stage actually did, including every scorer's pin and the agreement "
             "it achieved. None for runs that score nothing, such as inference or prompt generation."
+        ),
+    )
+    metrics: MetricsRecord | None = Field(
+        default=None,
+        description=(
+            "What the metric stage actually did: which estimator, under which thresholds. None "
+            "for runs that fit nothing."
         ),
     )
 
@@ -433,6 +499,7 @@ def write_run_manifest(
     run_id: str | None = None,
     inference: InferenceRecord | None = None,
     scoring: ScoringRecord | None = None,
+    metrics: MetricsRecord | None = None,
 ) -> RunManifest:
     """Write ``<results_dir>/<manifest_subdir>/<run_id>.json`` and return what was written.
 
@@ -448,6 +515,7 @@ def write_run_manifest(
             the same manifest, rather than orphaning both. Still recorded, never random.
         inference: What the inference stage actually did. None for runs that load no model.
         scoring: What the scoring stage actually did. None for runs that score nothing.
+        metrics: What the metric stage actually did. None for runs that fit nothing.
 
     Returns:
         The manifest **re-read and re-validated from the file on disk**, so the returned object
@@ -490,6 +558,7 @@ def write_run_manifest(
         quant=cfg.quant,
         inference=inference,
         scoring=scoring,
+        metrics=metrics,
     )
 
     destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{resolved_run_id}.json"

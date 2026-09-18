@@ -1,0 +1,45 @@
+# The emergence estimator's settings (P7).
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.metrics.config validates it
+# into a MetricsConfig. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# This file is PRE-REGISTRATION MATERIAL. Its sha256 is recorded in every metrics run manifest under
+# `metrics_config`. What is NOT here, because it is not configurable: the estimator itself. The link
+# is identity (scores are standardized, SD units), the model is `harm_std ~ A + B + A:B` over an axis
+# pair's order-2 cells with sum-to-zero coding, standard errors are cluster-robust by ITEM (prompt),
+# and the bootstrap resamples whole ITEMS with replacement within each cell. A config that could
+# switch the resampling unit to rows would be a config that could quietly understate every variance.
+
+key: emergence_v1
+
+# VERSION HISTORY
+#   emergence_v1@2026-09-18   initial estimator (P7). Drift thresholds are placeholders.
+metrics_version: "emergence_v1@2026-09-18"
+
+description: |
+  Cluster bootstrap over items, stratified by cell, for every reported CI. Drift-comparison
+  thresholds are DECLARED PLACEHOLDERS until P9 pre-registers them.
+
+bootstrap:
+  # Replicates per fit. Each replicate redraws every cell's prompts with replacement (whole
+  # prompts, all of their sampled generations together) and refits by least squares.
+  n_resamples: 2000
+  # Two-sided percentile interval.
+  ci_level: 0.95
+  # Routed through margins.repro.set_global_seed; the same seed reproduces every CI exactly.
+  seed: 20260918
+
+drift:
+  # ---------------------------------------------------------------------------------------
+  # PLACEHOLDERS. TODO(P9): pre-register both numbers before the first full run.
+  #
+  # comparable_ratio: a scorer whose own interaction magnitude (RMS of the A:B coefficients on
+  # neutral text) is at least this fraction of the model's -- as scored by that same scorer --
+  # is "comparable" (PROJECT_CONTEXT.md §9), and its harm type becomes a DESCRIPTIVE-ONLY
+  # candidate. P7 produces the ratio and the flag; the downgrade is P9's decision.
+  #
+  # family_disagreement_ratio: the two neutral families' drift magnitudes may differ by at most
+  # this factor before the drift estimate is reported as style-dependent.
+  # ---------------------------------------------------------------------------------------
+  comparable_ratio: 0.5
+  family_disagreement_ratio: 2.0

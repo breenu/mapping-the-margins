@@ -60,6 +60,9 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
         "logprob_stereo",
         "logprob_antistereo",
     },
+    # CONTRACT CHANGE 18 Sep 2026 (P7): prompt_id added. The emergence estimator clusters its
+    # standard errors and its bootstrap by ITEM (the prompt); a score row that does not name its
+    # item cannot be clustered, and the score table alone could not be fitted without it.
     ItemScore: {
         "score_id",
         "response_id",
@@ -67,6 +70,7 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
         "harm_type",
         "raw",
         "standardized",
+        "prompt_id",
         "cell_id",
         "benchmark",
         "model_id",

@@ -154,6 +154,7 @@ class FakeScorer:
                         harm_type=self._harm_type,
                         raw=float(index % 5) / 10.0,
                         standardized=float(index % 5) / 10.0 - 0.2,
+                        prompt_id=prompt.prompt_id,
                         cell_id=prompt.cell_id,
                         benchmark="open_gen_templates",
                         model_id=response.model_id,

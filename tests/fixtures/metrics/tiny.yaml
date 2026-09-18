@@ -1,0 +1,19 @@
+# A tiny metrics config for tests. 50 bootstrap replicates is far too few for a headline CI and
+# is used here only so the suite runs fast; the shipped config is what a run uses.
+
+key: tiny
+
+metrics_version: "tiny@2026-09-18"
+
+description: |
+  Test fixture for the emergence estimator. Same shape as configs/metrics/emergence_v1.yaml
+  with a small bootstrap.
+
+bootstrap:
+  n_resamples: 50
+  ci_level: 0.95
+  seed: 20260918
+
+drift:
+  comparable_ratio: 0.5
+  family_disagreement_ratio: 2.0

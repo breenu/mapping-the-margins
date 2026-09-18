@@ -128,7 +128,9 @@ def test_one_score_per_response_with_denormalized_keys(config: ScoringConfig) ->
     assert score.scorer_id == "fake_toxic_nn"
     assert score.harm_type == "toxicity"
     assert score.raw == pytest.approx(0.05, abs=1e-9)
-    # The denormalized keys are what keep the metric layer joinless.
+    # The denormalized keys are what keep the metric layer joinless. prompt_id is the item the
+    # P7 estimator clusters by; a row that lost it could not be fitted.
+    assert score.prompt_id == "p1"
     assert score.cell_id == "alpha=a1|beta=b1"
     assert score.benchmark == BENCHMARK
     assert score.model_id == MODEL_ID

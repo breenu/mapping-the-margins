@@ -1,0 +1,13 @@
+# The filename says wrong_key; the key says something else. Must be refused at load.
+
+key: not_wrong_key
+
+metrics_version: "tiny@2026-09-18"
+
+description: |
+  Deliberately mismatched key.
+
+bootstrap:
+  n_resamples: 50
+  ci_level: 0.95
+  seed: 1

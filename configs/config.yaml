@@ -42,6 +42,12 @@ decoding_name: greedy_v1
 # key must exist here at all for `scoring_name=...` to be overridable from the command line.
 scoring_name: default_v1
 
+# Which metrics config -- bootstrap replicates, CI level, seed, and the PLACEHOLDER drift
+# thresholds -- this run fits under (added at P7). `metrics_name` for the same reason as every
+# `_name` above: `configs/metrics/` is a Hydra config GROUP. The file's sha256 goes into the
+# manifest under `metrics_config`, beside the digests of the two P6 tables the run consumed.
+metrics_name: emergence_v1
+
 # Open decision #2 CLOSED at P5 (9 Sep 2026): Llama-3.1-8B-Instruct + Mistral-7B-Instruct-v0.3
 # confirmatory, Llama-3.2-1B-Instruct for dev. The pinned revision shas live in
 # `configs/model/<name>.yaml`, resolved by `scripts/pin_models.py` and never hand-authored. These

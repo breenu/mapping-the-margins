@@ -635,8 +635,17 @@ interaction. It is assumption-light, requires no link-function commitment, and i
 Comparability is an empirical result (report the vector and the agreement), never an assumption. If
 the paradigms disagree, that is the finding and it gets said plainly.
 
-**Open decision before P7/P9:** link/scale (identity vs logit) and the exact null model — chosen and
-pre-registered by the human.
+~~**Open decision before P7/P9:** link/scale (identity vs logit) and the exact null model — chosen and
+pre-registered by the human.~~ **DECIDED 18 Sep 2026 at P7** (`margins.metrics`; the record is in
+`CLAUDE.md`, "P7 as built"): identity link, OLS on the standardized score; `harm_std ~ A + B + A:B`
+over an axis pair's **order-2 cells only** with **sum-to-zero coding** (no reference level — age and
+gender have none; the lattice has no "no identity" cell, so order-1 cells cannot enter as an
+"absent" level without leaving a corner unidentified); every level's coefficient is emitted, and the
+set is linearly dependent, which P9 accounts for in the FDR family; `harm_std` is the equal-weight
+mean of the harm type's scorers' standardized scores; **SEs cluster-robust by item**; **CIs by cluster
+bootstrap over items, stratified by cell**. The drift series is fitted by the same estimator per
+control family and reported beside the model's with a ratio and a flag under **placeholder**
+thresholds. The permutation test (B3) is deferred to P9 with the rest of the resampling machinery.
 
 ---
 
@@ -652,7 +661,7 @@ pre-registered by the human.
 | P4b | `ExtractiveRenderer` emits no cell unattested in its source item; byte-identical regeneration from the same config. |
 | P5 | Same-seed greedy produces identical token sequences on CPU at a fixed thread count (tiny model); logprob path matches a hand-computed toy value within the documented tolerance; kill/restart resumes without dup/drop. |
 | P6 | Inter-scorer α/κ reported; scorer precision/recall on 150–300 labeled items; **scorer identity-drift interaction quantified per scorer and reported**; poor-agreement and high-drift harms downgraded. **Status 18 Sep 2026: α/κ emitted (`data/scoring/agreement.{csv,md}`); the drift artifact is emitted and the control demonstrably detects a synthetic identity-sensitive scorer while returning ~0 for a neutral one AND for a main-effects-only one. The calibration SCAFFOLD is built and its metrics tested against a fixture — the 150–300 real labels are the human's and do not exist yet, so the precision/recall clause is open. The downgrade DECISION is P7/P9's; P6 emits the numbers.** |
-| P7 | Synthetic recovery test: injected interaction recovered within CI; zero-interaction → ~0. Permutation null centred on ~0 under a no-effect synthetic. |
+| P7 | Synthetic recovery test: injected interaction recovered within CI; zero-interaction → ~0. Permutation null centred on ~0 under a no-effect synthetic. **Status 18 Sep 2026: the recovery and zero-interaction clauses are MET** (`tests/test_emergence_synthetic.py`, calibration checked over 24 datasets), plus item-clustered SEs shown wider than iid and matching the analytic SD. **The permutation clause is deferred to P9** — P7 was scoped to the estimator + drift comparison; B3 rides with the stats layer's resampling. |
 | P8 | Human on-target % on a sample reported; dedup + filter logged; prompts restricted to the confirmatory axis pairs. |
 | P9 | FDR reduces significant count; power table names min detectable effect; **pre-reg tag predates first full run**; `family_size` and `correction` stamped on every corrected estimate. |
 | P10 | `make_figures.py` regenerates every figure from committed tables; greyscale/colourblind pass; **`results/paper_numbers.json` emitted and every headline number in the manuscript resolves to a key in it**. |

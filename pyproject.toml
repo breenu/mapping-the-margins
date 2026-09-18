@@ -119,7 +119,8 @@ ignore_missing_imports = true
 # P6's scoring stack. These are CORE deps (always installed), so unlike the inference block below
 # they need no `follow_imports = "skip"` -- the check does not change with which extras are present.
 # They simply ship no type information, and strict mode will not accept an untyped import.
-module = ["krippendorff.*", "sklearn.*", "vaderSentiment.*", "pandas.*"]
+# `statsmodels` joins the list at P7 for the same reason: a core dep with no type information.
+module = ["krippendorff.*", "sklearn.*", "vaderSentiment.*", "pandas.*", "statsmodels.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

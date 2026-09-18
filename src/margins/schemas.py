@@ -531,6 +531,15 @@ class ItemScore(BaseModel):
     )
 
     # Denormalized grouping keys.
+    #
+    # CONTRACT CHANGE 18 Sep 2026 (P7): `prompt_id` added. The emergence estimator's standard
+    # errors are cluster-robust by ITEM (the prompt), and its confidence intervals come from a
+    # cluster bootstrap that resamples whole items -- the ~50 sampled generations per prompt are
+    # repeated observations within one item and must never be counted as independent. Without
+    # the key on the row, the metric layer needed the response file to cluster, and a score table
+    # on its own could not be fitted. Required, with no default: a row without an item is
+    # unclusterable, and "unknown" is not a cluster.
+    prompt_id: str = Field(min_length=1, description="The item (prompt) this score belongs to.")
     cell_id: str | None = None
     benchmark: str = Field(min_length=1)
     model_id: str = Field(min_length=1)

@@ -8,7 +8,7 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ complete.** P0: environment, `margins.repro`,
+**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ · P7 ✅ complete.** P0: environment, `margins.repro`,
 `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces`
 (Protocols), walking skeleton, and the schema field-freeze test. P3: `margins.lattice` —
 `LatticeConfig` (`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a
@@ -24,10 +24,81 @@ both locked environments.
 **The Kaggle timing pilot has been RUN (18 Sep 2026) and decision #8 — the E1 grid and the compute
 plan — is CLOSED.** Do not re-recommend running it; the numbers are below and in decision #8.
 
-**NEXT TASK: P7 — the emergence estimator and the cross-paradigm comparison.** Not started.
-Test-first against synthetic data with known answers (§5): injected interaction recovered within CI,
-zero-interaction → ~0, permutation null centred on ~0. **P6 emits both series P7 needs and fits
-nothing** — see below.
+P7: `margins.metrics` — the emergence estimator (OLS, identity link, sum-to-zero coding over an axis
+pair's order-2 cells, **cluster-robust SEs by item**, **cluster bootstrap over items stratified by
+cell**), the drift-series fit through the *same* estimator, and the side-by-side comparison. All four
+gates green on `win_amd64` (**560 tests**, 49 of them P7's synthetic-recovery gate) and in CI.
+
+**NEXT TASK: P9 — the statistics layer.** Not started. FDR over the pre-registered family, power
+(which fixes `min_cell_n` **together with** the rendering budget — decision #8), the permutation
+test (B3 — deferred from P7, see below), sensitivity (E4), and the pre-registration tag **before**
+the first full run. Then P2 → P4b (the extractive vertical), P8, P10.
+
+### P7 as built (for P9 to consume)
+
+- **CONTRACT CHANGE: `ItemScore` gained `prompt_id`** (required, no default). The estimator
+  clusters by ITEM (the prompt) and its bootstrap resamples whole items; a score row that does not
+  name its item cannot be clustered, and the score table alone could not be fitted without it.
+  `tests/test_schema_field_freeze.py` updated deliberately; `ResponseScorer` populates it from the
+  prompt it already holds; `DriftRow` unchanged (each control text is its own item).
+  `RunManifest` gained a `metrics` block; `ExperimentConfig` gained `metrics_name`.
+- **Four estimand decisions, confirmed with the human 18 Sep 2026, before the pre-registration tag:**
+  1. **Order-2 cells only, sum-to-zero (deviation) coding.** Per pair, a two-way layout over its
+     |A|×|B| order-2 cells; `γ_ij` = the cell mean's departure from the additive fit (in a balanced
+     design exactly `μ_ij − μ_i. − μ_.j + μ..`, checked to 1e-10). No reference level — age and
+     gender have none. Order-1 cells are described by `CellStat` only: the lattice has no
+     "no identity" cell, so an "absent" level leaves the (absent, absent) corner unidentified and
+     confounds absence with "one fewer descriptor".
+  2. **`harm_std` = the equal-weight mean of the harm type's scorers' `standardized` per response**
+     (each leg already z-scored within benchmark × scorer × condition). A response missing a scorer
+     is **refused**, not imputed (constraint 6). Per-scorer fits are ALSO emitted (`fit_terms` /
+     `fit_reports`, `scorer_id` set) because the drift comparison is scorer-specific.
+  3. **Bootstrap: items resampled with replacement WITHIN each cell** (whole items move together; every
+     replicate keeps every cell identified — an unstratified resample drops a cell with p ≈ e⁻⁹ per
+     cell per replicate). Percentile CI. Refits by numpy `lstsq`, held to the statsmodels point fit.
+  4. **Every level's coefficient is emitted**, not only the (|A|−1)(|B|−1) free ones: `term =
+     "A=a:B=b"` for all |A|·|B| interaction cells plus `"A=a"`/`"B=b"` main effects. The set is
+     linearly dependent (γ rows/columns sum to zero) — **P9 must account for that when it defines
+     the FDR family**; it was not hidden by dropping a level.
+- **The clustering demonstrably works, and is the right size.** Synthetic item intercept sd 1.0,
+  noise 0.3, 6 items/cell: clustered/iid SE ratio **2.14 at 5 seeds/item, 4.34 at 20** (the design
+  effect grows with seeds, as it must), and the clustered SE (0.226) sits on the analytic sampling
+  SD (0.236) while the iid SE (0.052) is a quarter of it. The cluster-robust covariance is recomputed
+  by hand in the tests (sandwich + statsmodels' G/(G−1)·(N−1)/(N−k) correction) to 1e-10.
+- **Zero-interaction → ~0 with the intersection the HIGHEST level in the table** (mean +1.34 SD):
+  all six |γ| ≤ 0.06, RMS 0.047; over 24 independent datasets the mean γ is ~0 and the 95% CI
+  covers zero ≥ 19/24 times. Calibration is asserted over repeated datasets, not one seed — joint
+  coverage of seven terms at one seed fails ~25% of the time for a *correct* estimator.
+- **Not estimable is a reported result, never a NaN.** Empty cell, < 2 items, or no residual df →
+  `FitReport(estimable=False, reason=…)`, no `EffectEstimate` for that pair. The dev run (24 cells ×
+  1 rendering) reports **every** pair not estimable — correct, and the smoke shows it.
+- **`powered` comes from the ACTUAL n against `min_cell_n`** (the lattice placeholder, passed in),
+  never from the projection. `EffectEstimate.powered` = every cell of the pair powered.
+- **Drift: both families fitted separately, never pooled; nothing subtracted.** `compare_drift`
+  emits `drift_rms / model_rms` per (scorer, pair, family) — `model_rms` is *that scorer's own*
+  model fit, apples to apples — a `comparable` flag at **`comparable_ratio = 0.5`**, a
+  `families_disagree` flag at **`family_disagreement_ratio = 2.0`**, and a per-harm-type
+  `descriptive_only_candidate`. **Both thresholds are PLACEHOLDERS in
+  `configs/metrics/emergence_v1.yaml` — TODO(P9): pre-register.** The downgrade is P9's decision.
+- **⚠ KNOWN CAVEAT, found by running the real drift artifact: the percentile-bootstrap CI of
+  `rms_interaction` is biased upward near zero.** RMS is a norm, so every replicate's γ's carry
+  sampling noise that inflates their RMS, and a scorer whose true interaction is ~0 gets a point
+  estimate *below* its own CI's lower bound (e.g. `regard_classifier` on `age × race`, RMS 0.001,
+  CI [0.005, 0.017]). Per-coefficient γ CIs are unaffected (γ is linear), and the drift ratio and
+  flags use point estimates, so nothing downstream is wrong — but **P9 must not read `rms_ci` as a
+  calibrated interval for small magnitudes**; a bias-corrected bootstrap or a coefficient-scale
+  comparison is the fix, and it is P9's call.
+- **Early signal on the real P6 artifact, still NOT a finding:** `toxic_bert`'s own interaction on
+  neutral text is 0.10–0.28 SD RMS across pairs (both families), `regard_classifier` 0.06–0.42
+  (largest on `ability × gender`), while both lexicon scorers sit at 0.000. No model comparison
+  exists yet (the dev run has one rendering per cell), so no ratio, no flag, no claim.
+- **The permutation test (B3) is NOT built.** §11's P7 row names it, but the brief locked P7 to the
+  estimator + drift; it belongs with P9's resampling machinery. `EffectEstimate.p` stays `None`
+  here too — nothing in `margins.metrics` computes a p-value.
+- **Artifacts** under `data/metrics/`: `effects.parquet` (uncorrected — P9 reads it), `cell_stats`,
+  `fit_terms`, `fit_reports`, `drift_comparison`, `family_agreement`, `harm_flags`,
+  `drift_side_by_side` (Parquet, round-trip-tested), `drift_comparison.md` + `fit_report.md`
+  (byte-deterministic). No new dependencies: `statsmodels`/`scipy` were already core.
 
 ### P6 as built (for P7 to consume)
 
@@ -296,8 +367,9 @@ a RESOLVED note that matches any cell fails the suite.
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → **P7** → *then* P2 (CrowS-Pairs) →
-> **P4b** (ExtractiveRenderer) → P8 → P9 → P10 → P11 → P12 → P13
+> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → **P9** (pulled forward: the
+> pre-registration tag needs it and nothing in it depends on P2) → *then* P2 (CrowS-Pairs) →
+> **P4b** (ExtractiveRenderer) → P8 → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
 estimand. Generation-first means a slip costs **breadth** (RQ1's second paradigm — already cuttable
@@ -363,6 +435,11 @@ uv run python scripts/pin_scorers.py                      # --verify revisions A
 uv run python scripts/run_scoring.py --responses data/responses/<model>/<run_id>.jsonl
 uv run python scripts/build_calibration_sample.py --harm-type toxicity --responses <file>
 uv run python scripts/calibration_report.py --labels data/scoring/labels_toxicity.jsonl
+
+# P7 metrics. Core env, no torch. Reads the two P6 parquets; writes data/metrics/ + a manifest.
+# --n-resamples overrides the config's 2000 for smoke runs only (recorded as used).
+uv run python scripts/run_metrics.py
+uv run python scripts/run_metrics.py --n-resamples 200      # smoke
 
 # Quality gates — all must pass before crossing a phase boundary.
 uv run pytest -q
@@ -473,8 +550,13 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
    families** so the confirmatory result is not one architecture's quirk. A pin that drifts is not a
    pin: `ModelSpec` rejects a branch name, and a re-pin is a logged decision, because any result
    produced under the old revision was produced under a *different* model.
-3. **Emergence link/scale + null model** (before P7/P9): identity vs logit; the additive null to test
-   against. Must be pre-registered (tag due end of W4).
+3. ~~**Emergence link/scale + null model**~~ — **DECIDED 18 Sep 2026 (P7), pre-registration
+   text.** Identity link, OLS on standardized scores; `harm_std ~ A + B + A:B` over an axis pair's
+   order-2 cells with **sum-to-zero coding**; the additive null is the same model without `A:B`
+   (B2 = a presentation of the interaction); cluster-robust SEs by item; cluster bootstrap over
+   items stratified by cell; `harm_std` = mean of the scorers' standardized scores. See "P7 as
+   built". **Still open for P9:** the permutation test's exact scheme (B3) and the two placeholder
+   drift thresholds. Tag due end of W4.
 4. **Quantization-as-axis:** OFF unless the human runs the dedicated literature search first.
 5. **Paper title** is not finalized (distinctiveness risk noted in the deep reference). Working
    repo/package names are `mapping-the-margins` / `margins`. Don't hard-code a paper title anywhere
