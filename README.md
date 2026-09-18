@@ -8,7 +8,8 @@ exists — that is settled prior art. What the field lacks, and what this projec
 reproducible instrument with native intersectional metrics, cross-paradigm comparability
 (static benchmarks *and* automated red-teaming on one scale), a mandatory statistical protocol,
 a generative operationalization of emergence, lattice coverage beyond gender-anchored
-intersections, and all of it at **accessible / free-tier compute** — no industrial GPU.
+intersections, and all of it at **accessible compute** — no industrial GPU, and the reference
+configuration reproduces on free-tier cloud (see [Compute](#compute)).
 
 ## Build status
 
@@ -17,7 +18,10 @@ intersections, and all of it at **accessible / free-tier compute** — no indust
 | **P0** — environment, seeding, run manifest, CI | ✅ complete |
 | **P1** — schemas + interfaces | ✅ complete |
 | **P3** — identity lattice | ✅ complete |
-| P4a and later | not started |
+| **P4a** — `TemplateRenderer` + the `open_gen` prompt set | ✅ complete |
+| **P5** — inference backend + resumable run harness | ✅ complete |
+| P6 — scoring, triangulation, drift control | in progress |
+| P7 and later | not started |
 
 Phases are built strictly in the order in [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
 §5; each is gated by §11.
@@ -28,13 +32,16 @@ Phases are built strictly in the order in [`docs/PROJECT_CONTEXT.md`](docs/PROJE
 
 ```bash
 uv sync --extra dev          # Windows dev environment: core + dev, no GPU stack
-uv sync --extra inference    # Linux / Kaggle only: transformers, torch, bitsandbytes, ...
+uv sync --extra inference    # torch, transformers, accelerate (BOTH environments)
+                             #   + bitsandbytes, datasets, evaluate, detoxify (Linux only)
 uv sync --extra llamacpp     # pure-CPU / Apple fallback backend
 ```
 
-The `inference` extra is Linux-gated by marker, and `uv.lock` resolves for exactly two
-environments (`win_amd64`, `linux_x86_64`). That is what keeps `bitsandbytes` from failing
-resolution on Windows — never unpin a dependency to work around a resolution failure.
+Within the `inference` extra, `bitsandbytes` (and `datasets`/`evaluate`/`detoxify`) are Linux-gated
+by marker while `torch`/`transformers`/`accelerate` are not, so the extra installs on Windows for
+dev-scale work. `uv.lock` resolves for exactly two environments (`win_amd64`, `linux_x86_64`), which
+is what keeps `bitsandbytes` from failing resolution on Windows — never unpin a dependency to work
+around a resolution failure.
 
 ## Quality gates
 
@@ -118,9 +125,17 @@ uv run python scripts/build_lattice.py --verify # build, verify every term, writ
 
 ## Compute
 
-Development runs on a Windows laptop (core + dev extras, no `torch`). The 7–8B generative sweep
-and red-team generation run on **free-tier Kaggle GPU** (Linux, NF4) and never locally.
-Quantization is a **fixed recorded constant**, not an experimental axis.
+Development runs on a Windows laptop (core + dev extras, no `torch`). The 7–8B generative sweep and
+red-team generation run on Linux with NF4 quantization, and never locally. Quantization is a
+**fixed recorded constant**, not an experimental axis.
+
+**The compute claim is two-part, and both halves matter.** A measured timing pilot (Kaggle, Tesla T4,
+NF4) put the confirmatory sweep at ~14 s/prompt per model — roughly 3 weekly free-tier quotas. The
+sweep therefore **runs on a university GPU** to meet the deadline, while **free-tier Kaggle remains
+the documented reproduction path**: accessible compute is a property of the instrument, not a claim
+about where we personally ran it. Because the two hosts differ, cross-hardware reproduction is
+**metric-level within a reported tolerance, not bit-level**; the manifest records the actual GPU,
+driver, `torch` version, thread count and BLAS so a reproducer can check that.
 
 **CI has no GPU.** GitHub-hosted runners run lint, types, and tests on Linux and Windows; the
 gated `inference-cpu` job only verifies that the inference extra installs. Model-level

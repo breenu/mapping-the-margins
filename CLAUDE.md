@@ -18,14 +18,10 @@ findings resolved; lattice bumped to **v1.1**). P5: `margins.inference` — `Dec
 `decoding_hash`, the pinned `ModelSpec`s (decision #2 closed), `HFBackend`, and the resumable
 `RunHarness`. All four gates green on `win_amd64` and in CI on both locked environments.
 
-**NEXT TASK: P6 — scoring, triangulation, and the scorer identity-drift control.** Not started.
+**The Kaggle timing pilot has been RUN (18 Sep 2026) and decision #8 — the E1 grid and the compute
+plan — is CLOSED.** Do not re-recommend running it; the numbers are below and in decision #8.
 
-**⚠ THE KAGGLE TIMING PILOT IS OUTSTANDING AND IS THE HUMAN'S TO RUN.** `scripts/kaggle_timing_pilot.py`
-/ `notebooks/kaggle_timing_pilot.ipynb` are built, self-contained and tested, but **no timing number
-exists yet** — Claude Code cannot reach Kaggle and must never fabricate one. Its output is the input
-to **hard go/no-go criterion 4** (Sep 28–29) and to the E1 grid decision (greedy vs sampled), both of
-which are due before P6's results matter. Run it, bring back `pilot_results.json`, and record the
-numbers here.
+**NEXT TASK: P6 — scoring, triangulation, and the scorer identity-drift control.** Not started.
 
 ### P5 as built (for P6 to consume)
 
@@ -81,10 +77,25 @@ numbers here.
   (partial stubs ⇒ `no-untyped-call`). `follow_imports = "skip"` on the inference stack makes both
   cases identical. A gate whose result depends on the environment is not a gate.
 
-### The Kaggle timing pilot — BUILT, NOT RUN (the human's to execute)
+### The Kaggle timing pilot — RUN 18 Sep 2026 (measured; do not re-run, do not re-recommend)
 
-`scripts/kaggle_timing_pilot.py` + the generated `notebooks/kaggle_timing_pilot.ipynb`. **No timing
-number exists yet and none may be invented.**
+`scripts/kaggle_timing_pilot.py` + the generated `notebooks/kaggle_timing_pilot.ipynb`.
+
+**MEASURED on Kaggle, Tesla T4, both models at NF4:**
+
+| model | sec/prompt | peak VRAM |
+|---|---|---|
+| `meta-llama/Llama-3.1-8B-Instruct` | ~14.0 | ~6.6 GB |
+| `mistralai/Mistral-7B-Instruct-v0.3` | ~14.8 | ~8.0 GB |
+
+**Verdict (this is decision #8, recorded in full below):** greedy E1 gives ~9 renderings/cell and is
+**statistically underpowered — ruled out**. Sampled ×11 (~99/cell) costs **~87 GPU-h ≈ ~290% of
+Kaggle's ~30 GPU-h weekly quota** — unaffordable on free tier. The design target is therefore
+**sampled generation at ~50 renderings/cell**, run on a **university GPU**, with Kaggle retained as
+the documented reproducibility fallback.
+
+`pilot_results.json` is **not committed** (`data/` is gitignored). Its home is
+`data/pilot/pilot_results.json`; the numbers above are the record of it.
 
 - **Self-contained.** Imports nothing from `margins` (Kaggle has no checkout, and `data/` is
   gitignored so the prompt file is absent there). Its 50 prompts, the two model pins and the decoding
@@ -100,9 +111,9 @@ number exists yet and none may be invented.**
   99-renderings/cell arithmetic), E4 subset (3 temps × 3 seeds × 10%) — in GPU-h and % of ~30
   GPU-h/week, with every assumption printed above the numbers. **It refuses to extrapolate without
   CUDA**: a CPU timing presented as a GPU budget would be a fabricated number.
-- **What it feeds:** hard go/no-go criterion 4 (Sep 28–29) and the **E1 grid decision** — greedy
-  gives only 9 renderings/cell against `min_cell_n = 60`, so the sampled arm is what the power
-  bookkeeping actually needs, at roughly 11× the cost. Red-teaming (P8) is **not** in the table.
+- **What it fed:** hard go/no-go criterion 4 (Sep 28–29) and the **E1 grid decision**, both now
+  settled — see decision #8. Red-teaming (P8) is **not** in the pilot's table, so its cost still has
+  to be added to the university-GPU budget separately.
 
 ### P4a as built (for P5 to consume)
 
@@ -122,10 +133,14 @@ number exists yet and none may be invented.**
 - **Article rule lives in the prompt config**, not the lattice: vowel-letter rule plus an override
   table, and it **refuses to guess** on `eu-`/`u-`/`one-`/`hon-`. No overrides are needed for the
   18 shipped descriptors.
-- **Budget arithmetic:** renderings/cell = |templates| × |samples|. 9 frames no longer divides
-  P3's 96 evenly — 11 samples ⇒ 99/cell (**10,890 renderings**), 12 ⇒ 108. Both clear
-  `min_cell_n = 60`, and both that and the 96 are P9 placeholders, so nothing is load-bearing yet.
-  Sample count is a P5 decision.
+- **Budget arithmetic:** renderings/cell = |templates| × |samples|. ~~11 samples ⇒ 99/cell
+  (**10,890 renderings**), 12 ⇒ 108; both clear `min_cell_n = 60`.~~ **Superseded by decision #8
+  (18 Sep 2026):** the pilot priced the ×11 grid at ~290% of Kaggle's weekly quota, so the target is
+  **~50 renderings/cell** — between greedy's underpowered 9 and the unaffordable 99. With 9 frames
+  that is 5 or 6 samples (45 or 54/cell). **The exact number is NOT settled here**: it is locked at
+  P9 *together with* `min_cell_n`, because a rendering budget and the minimum N it must clear are one
+  decision, not two. Note ~50 sits **below** the `min_cell_n = 60` placeholder — that is expected and
+  is precisely why both are replaced at the same time.
 - ~~**`decoding_key = "greedy_v1"` is a NAME only.**~~ **Resolved at P5:**
   `configs/decoding/greedy_v1.yaml` + `DecodingConfig.decoding_hash`. Editing that file changes the
   prompt-set config's sha256 but **not** `prompt_id` (which digests the rendered text, not the
@@ -344,8 +359,10 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
 
 ## Open decisions — ASK the human, do not silently choose
 
-1. ~~Hardware branch~~ — **DECIDED: Windows laptop for dev (`win_amd64`, core+dev only), Linux /
-   free-tier Kaggle GPU for inference (`linux_x86_64`, NF4). The 7–8B sweep never runs locally.** §7.
+1. ~~Hardware branch~~ — **DECIDED: Windows laptop for dev (`win_amd64`, core+dev only), Linux GPU
+   for inference (`linux_x86_64`, NF4). The 7–8B sweep never runs locally.** §7. **Amended by
+   decision #8 (18 Sep 2026):** the inference host for the confirmatory sweep is a **university
+   GPU**, not free-tier Kaggle; Kaggle stays as the reproducibility fallback.
 2. ~~**Model checkpoints**~~ — **DECIDED 9 Sep 2026.** All four verified reachable at pin time; the
    two Meta repos are `gated: manual` and the project account's licence acceptance is confirmed.
    **Revisions were RESOLVED through `huggingface_hub`, never hand-authored** — re-check with
@@ -384,6 +401,34 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
    `Prompt.rendered_text` is a single string, so it cannot carry the two sequences a `pair_pll`
    response needs. Options: a second rendered-text field on `Prompt`, a canonical joined encoding, or
    a paired-prompt variant. Nothing is encoded yet — do not let this slip past the CrowS-Pairs loader.
+8. ~~**E1 decoding grid + compute host**~~ — **DECIDED 18 Sep 2026, from the measured Kaggle timing
+   pilot.** Do not reopen and do not re-recommend running the pilot.
+
+   | arm | renderings/cell | cost | verdict |
+   |---|---|---|---|
+   | greedy (990×2×1) | ~9 | cheap | **RULED OUT — statistically underpowered** |
+   | sampled ×11 (990×2×11) | ~99 | ~87 GPU-h ≈ **~290% of Kaggle's ~30 GPU-h/week** | **RULED OUT — unaffordable on free tier** |
+   | **sampled, ~50/cell** | **~50** | the middle ground | **CHOSEN** |
+
+   - **Generation is SAMPLED, not greedy** — distinct seeds per prompt, per P5's rule that distinct
+     samples come from distinct seeds (`plan()` rejects repeated seeds). `configs/decoding/sampled_v1.yaml`
+     is the profile; `greedy_v1` remains for E4's temp-0.0 arm.
+   - **~50 renderings/cell is a TARGET, not a locked number.** P9's power analysis sets the real
+     figure and replaces `min_cell_n = 60` **in the same decision** — a budget and the threshold it
+     must clear cannot be settled independently. ~50 currently sits *below* the 60 placeholder; that
+     is why `configs/lattice/confirmatory_v1.yaml` was left at 96/60 with a stale-marker comment
+     rather than edited to flip all 110 cells to `powered=False` on a placeholder-vs-placeholder
+     comparison.
+   - **Compute: a university GPU** (single 24 GB+ card, ~a few days), secured from ~w/c 21 Sep 2026.
+     **Kaggle free tier remains the documented reproducibility fallback** — the sweep fits in roughly
+     3 weekly quotas there. This keeps framing constraint 2 honest in a two-part form: *reproducible
+     on free-tier commodity hardware; run institutionally to meet the deadline.* Never state it as
+     "we ran this on a free tier" — we did not.
+   - **Record the ACTUAL GPU, driver, `torch` version, and BLAS in the manifest at run time.** Moving
+     hosts makes reproduction **metric-level within a reported tolerance, not bit-level** — which is
+     what invariant 5 already says, since bit-identity is scoped to CPU at a fixed thread count.
+   - **Scope is unchanged by this:** Llama + Mistral confirmatory, red-teaming (P8) kept, ablations
+     A1–A3 still stretch-only, RQ1 at k = 2 answered by the effect vector + agreement with no pooling.
 
 ---
 

@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"lattice_version:  {lattice.config.lattice_version}")
     print(f"template_version: {prompt_config.template_version}")
-    print(f"decoding_key:     {prompt_config.decoding_key}  (TODO(P5): resolved config at P5)")
+    print(f"decoding_key:     {prompt_config.decoding_key}  (resolved at P5: configs/decoding/)")
     print("\nsummary")
     print(f"  {'templates':<32} {len(files)}")
     print(f"  {'cells':<32} {len(lattice.cells())}")

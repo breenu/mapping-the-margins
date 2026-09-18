@@ -214,6 +214,25 @@ pairs:
       rather than only in prose.
 
 power:
+  # ---------------------------------------------------------------------------------------
+  # STALE AS OF 18 Sep 2026 -- READ THIS BEFORE EDITING EITHER NUMBER BELOW.
+  #
+  # The W2 Kaggle timing pilot (Tesla T4, NF4, ~14.0/~14.8 s per prompt) ruled out both arms
+  # these numbers were written against:
+  #   - greedy E1        -> ~9 renderings/cell  -> statistically underpowered
+  #   - sampled x11 E1   -> ~99 renderings/cell -> ~87 GPU-h, ~290% of a free Kaggle week
+  # The design target is now SAMPLED generation at ~50 renderings/cell, on a university GPU.
+  #
+  # ~50 is BELOW the min_cell_n placeholder of 60. That is expected, and it is exactly why
+  # neither number is edited here: `powered = projected_n >= min_cell_n`, so writing 50 into
+  # renderings_per_cell today would flip all 110 cells to powered=False on a comparison
+  # between two placeholders, and regenerate cell_inventory.csv for no gained information.
+  #
+  # A rendering budget and the minimum N it must clear are ONE decision. P9's power analysis
+  # replaces BOTH, together, before the pre-registration tag. Do not edit one alone.
+  # See PROJECT_CONTEXT.md section 8 and CLAUDE.md open decision #8.
+  # ---------------------------------------------------------------------------------------
+
   # TODO(P9): min_cell_n is a PRE-REGISTERED PLACEHOLDER, not a derived number. The real
   # minimum cell N comes from the P9 power analysis (alpha=0.05, power=0.8, minimum detectable
   # effect fixed there) and must be tagged in docs/preregistration.md before the first full run.
@@ -223,8 +242,9 @@ power:
 
   # Projected renderings per cell = |templates| × |seeds|, uniform across cells by design: the
   # scorer identity-drift control (§9) reuses the SAME templates and the SAME descriptors with a
-  # neutral carrier, so an unequal per-cell budget would leave the control unmatched. The number
-  # is an ESTIMATE pending the W2 Kaggle timing pilot, which sets the real prompt budget.
+  # neutral carrier, so an unequal per-cell budget would leave the control unmatched.
+  # STALE: 96 pre-dates the timing pilot; the target is now ~50. See the block above -- it is
+  # left at 96 deliberately, and is replaced together with min_cell_n at P9.
   renderings_per_cell:
     order_1: 96
     order_2: 96

@@ -3,8 +3,9 @@
 Full context and plan for building this project from scratch. The always-on essentials (current
 status, commands, non-negotiable framing constraints, design invariants, guardrails, open decisions)
 live in the lean root **`CLAUDE.md`**; this file is the detailed reference to read before implementing
-a new phase. **Build status is tracked in `CLAUDE.md`, not here** — as of writing, nothing is
-implemented; the first task is P0.
+a new phase. **Build status is tracked in `CLAUDE.md`, not here** — this file describes the target
+design and does not track progress. (The §4 layout and parts of §3 are written in the future tense
+from before P0; read them as the target, and `CLAUDE.md` for what actually exists.)
 
 > **Deadline premise — verify before relying on it.** This plan is built backwards from a FAccT
 > **abstract registration on 27 Oct 2026** (mandatory, non-placeholder) and **paper on 3 Nov 2026**,
@@ -28,7 +29,8 @@ what this project supplies — is a **reproducible instrument** with:
 3. a statistical rigor protocol (FDR, power, seed/temperature sensitivity) that all but one prior audit lacks,
 4. a generative-level operationalization of emergence,
 5. lattice coverage beyond gender-anchored intersections (real non-gender×non-gender cells),
-6. all at accessible / free-tier compute.
+6. all at **accessible compute** — no industrial GPU, with the reference configuration reproducible
+   on free-tier cloud. (Two-part by necessity after the W2 timing pilot; see §7.)
 
 ### Research questions
 - **RQ1:** Can a unified intersectional bias score be computed *comparably* across heterogeneous
@@ -75,7 +77,7 @@ Every novelty claim must be demonstrated **inside** the narrow scope:
 | 3. Statistical rigor protocol | Unchanged and full — FDR, power, cluster bootstrap, sensitivity (§8) |
 | 4. Generative operationalization of emergence | The `open_gen` path + interaction estimator + permutation baseline (§10) |
 | 5. Non-gender × non-gender lattice coverage | Reachable only via `open_gen`/red-team — both in scope; a named gate (§11 P3) |
-| 6. Accessible / free-tier compute | Kaggle free tier, demonstrated by the actual runs (§7) |
+| 6. Accessible compute | NF4 on a single commodity 24 GB-class card; the reference configuration demonstrated to fit free-tier Kaggle in ~3 weekly quotas, measured not estimated (§7). **State it two-part** — reproducible on free tier, run institutionally to meet the deadline. Never "we ran this on a free tier". |
 
 **RQ1 is a cross-*paradigm* claim, not a cross-*dataset* one.** At k = 2 the two sources differ
 maximally *in kind* — extractive sentence log-likelihood vs. templated open generation — rather than
@@ -389,7 +391,10 @@ layer (FDR monotonicity, power sanity). Silent bugs here become false paper clai
 - **Stats:** `statsmodels` (`multipletests` BH-FDR; GLM interaction with cluster-robust SEs; power;
   `stats.meta_analysis.combine_effects` — **only at k ≥ 3**, see §10) + `scipy` (`bootstrap`) +
   `pingouin` (effect sizes) + `krippendorff` (**Krippendorff α is not in `pingouin`**; Cohen κ comes
-  from `scikit-learn`).
+  from `scikit-learn`). *P6 declares `krippendorff`, `scikit-learn` and `vaderSentiment` as real
+  **core** dependencies — core rather than the `inference` extra, because agreement, standardization,
+  the drift arithmetic and calibration must all run on the torch-free CI job. `scikit-learn` was
+  previously only a `pingouin` transitive; using it undeclared was dishonest.*
 - **Viz:** `matplotlib` + `seaborn`, vector PDF/SVG.
 - **Storage:** JSONL (raw prompts/responses), Parquet (tabular scores/stats), committed small tables
   under `results/`. `data/` is gitignored and regenerable.
@@ -406,8 +411,13 @@ is used it is one scorer of ≥2, with a fixed documented prompt and seed — ne
 
 ## 7. Hardware & compute plan
 
-**Decided (resolves open decision #1): Windows laptop for development, Linux / free-tier Kaggle GPU
-for inference.** The 7–8B sweep never runs locally.
+**Decided (resolves open decision #1): Windows laptop for development, a Linux GPU for inference.**
+The 7–8B sweep never runs locally.
+
+> **AMENDED 18 Sep 2026 by the measured timing pilot (open decision #8).** The inference host for the
+> confirmatory sweep is a **university GPU**, not free-tier Kaggle. Kaggle is retained as the
+> **documented reproducibility fallback**. See *Measured compute* below — that subsection is the
+> authority for every budget number in this file.
 
 - **Windows laptop (`win_amd64`):** everything EXCEPT the 7–8B generative sweep and red-team
   generation — i.e. dev, schemas, lattice, prompts, scoring on cached outputs, metrics, stats, viz,
@@ -420,22 +430,60 @@ for inference.** The 7–8B sweep never runs locally.
     not installed**: the default sync is unchanged, NF4 remains a CUDA/Linux path (a Windows load
     falls back to unquantized and records that it did), and **the 7–8B sweep still never runs
     locally**.
-- **Kaggle (`linux_x86_64`), free tier:** the generative sweep (P5) and red-team generation (P8),
-  with the `inference` extra and `bitsandbytes` NF4. ~30 GPU-h/week, 12-h sessions, persistent
-  datasets, batched and **resumable** harness. **Colab is the debugging backup.**
+- **Kaggle (`linux_x86_64`), free tier:** ~30 GPU-h/week, 12-h sessions, persistent datasets,
+  batched and **resumable** harness, `inference` extra + `bitsandbytes` NF4. **Role changed
+  18 Sep 2026:** no longer the host of the confirmatory sweep — it is the **reproducibility path**,
+  the environment in which a third party can re-run the reference configuration without institutional
+  access. It also remains where the timing pilot was measured. **Colab is the debugging backup.**
 - **`uv.lock` must resolve for exactly two environments.** Pin `tool.uv.environments` to
   `win_amd64` and `linux_x86_64`. Without this, `uv lock` attempts to resolve `bitsandbytes` for
   Windows, and a resolution failure there creates pressure to unpin — which the guardrails forbid.
   Declaring the environments up front is the supported way to avoid that.
-- **University GPU:** convenience only, never a dependency; if used, verify one full config reproduces
-  on Kaggle.
+- **University GPU — the confirmatory sweep's host (from ~w/c 21 Sep 2026).** A single 24 GB-class
+  card, ~a few days of wall clock for E1 + E4 + red-team. This is now a **dependency of the schedule**,
+  not a convenience: the pilot showed the sweep does not fit the free-tier quota in the weeks
+  available. The obligation that came with the old wording survives and is now a **release
+  requirement**: at least one full configuration must be demonstrated to reproduce on Kaggle, because
+  that demonstration *is* novelty claim 6.
 - **Paid (only if scaling >8B or needing speed):** spot RTX 3090/4090 on RunPod/Vast (~$0.20–0.45/h);
   a full sweep is single-digit to low-tens of dollars.
 - **Scope-to-feasibility rule:** pick model sizes + prompt counts so reference experiments finish within
   free Kaggle quota; keep the full seed×temperature grid to the **sensitivity subset**, not the whole
   corpus. State this as a design choice, not a hidden limitation.
-- **Calibrate with a timed 50-prompt pilot on real hardware before committing scale (W2 — §13). Do not
-  trust an estimate over a measurement.**
+- ~~Calibrate with a timed 50-prompt pilot before committing scale (W2).~~ **DONE 18 Sep 2026 —
+  see below.** The rule it encoded still stands: *do not trust an estimate over a measurement.*
+
+### Measured compute (W2 timing pilot, 18 Sep 2026 — the authority for every budget number here)
+
+Kaggle, **Tesla T4**, both confirmatory models at **NF4**, 50 real P4a prompts:
+
+| model | sec/prompt | peak VRAM |
+|---|---|---|
+| `meta-llama/Llama-3.1-8B-Instruct` | ~14.0 | ~6.6 GB |
+| `mistralai/Mistral-7B-Instruct-v0.3` | ~14.8 | ~8.0 GB |
+
+**What the measurement decided (open decision #8):**
+
+| E1 arm | renderings/cell | cost | verdict |
+|---|---|---|---|
+| greedy, 990 × 2 × 1 | ~9 | cheap | **ruled out — statistically underpowered** |
+| sampled ×11, 990 × 2 × 11 | ~99 | ~87 GPU-h ≈ **~290% of one Kaggle week** | **ruled out — unaffordable on free tier** |
+| **sampled, ~50/cell** | **~50** | ~3 free-tier weekly quotas | **CHOSEN** |
+
+- **E1 generation is SAMPLED, not greedy** — `configs/decoding/sampled_v1.yaml` (temp 0.7), distinct
+  seeds per prompt. P5's harness already enforces that distinct samples come from distinct seeds
+  (`plan()` rejects a repeated seed), so the sample count *is* the seed count. `greedy_v1` survives as
+  E4's temp-0.0 grid point.
+- **~50 renderings/cell is a target, not a locked number** — P9 fixes it together with `min_cell_n`
+  (§8). VRAM at ~6.6–8.0 GB means a 24 GB card is not the binding constraint; **wall clock is**.
+- **The claim to state is two-part:** *reproducible on free-tier commodity hardware; run
+  institutionally to meet the deadline.* Saying "we ran this on a free tier" would be false.
+- **Cross-hardware reproduction is metric-level within a reported tolerance, not bit-level.** Invariant
+  5 already scopes bit-identity to CPU at a fixed thread count, so moving hosts does not weaken it —
+  but the manifest must record the **actual GPU, driver, `torch` version, thread count and BLAS** at
+  run time, or the tolerance claim is not checkable by anyone.
+- **Red-teaming (P8) is NOT in the pilot's scenario table** and must be budgeted separately against
+  the university GPU before W5.
 
 ### Environment preconditions (settle these before P0 runs)
 
@@ -492,6 +540,15 @@ Free GitHub Actions has **no GPU**; say so in the docs rather than implying CI c
   mixed model with a random intercept for item.
 - **Power:** `statsmodels.stats.power`; fix minimum detectable effect at α=0.05, power=0.8; derive
   minimum cell N; mark under-N cells `powered=False`.
+- **The E1 grid and `min_cell_n` are ONE decision, settled together at P9.** The W2 pilot (§7) ruled
+  out greedy (~9 renderings/cell, underpowered) and the ×11 sampled grid (~99/cell, ~290% of a free
+  Kaggle week), leaving a **target of ~50 renderings/cell under sampled generation at distinct
+  seeds**. That target currently sits **below** the `min_cell_n = 60` placeholder in
+  `configs/lattice/confirmatory_v1.yaml`. This is not a failure to be reported — it is two
+  placeholders being compared. P9 derives the real minimum detectable effect, which fixes *both* the
+  threshold and the budget; until then `configs/lattice/confirmatory_v1.yaml` deliberately keeps
+  96/60 so the `powered` flags are not flipped on a placeholder-vs-placeholder comparison. **Do not
+  edit one of the two numbers without the other.**
 - **CIs:** bootstrap (`scipy.stats.bootstrap`) on every headline number, as a **cluster bootstrap over
   items/descriptors** — resampling rows rather than clusters understates variance for exactly the
   reason above. The resampling unit is pre-registered; it is the part that matters.
@@ -610,8 +667,10 @@ run it before a full run.
 
 **Confirmatory (in scope):**
 - **E1 Main audit** (RQ2): the templated `open_gen` set + CrowS-Pairs, over the pre-registered
-  confirmatory axis pairs; one 7–8B model family; greedy + fixed temp; emergence per pair; GLM
-  interaction with cluster-robust SEs + cluster-bootstrap CI + BH-FDR across the whole family.
+  confirmatory axis pairs; one 7–8B model family; **sampled generation at distinct seeds
+  (`sampled_v1`, temp 0.7), targeting ~50 renderings/cell — NOT greedy**, which the W2 pilot showed
+  yields only ~9/cell and is underpowered (§7, §8); emergence per pair; GLM interaction with
+  cluster-robust SEs + cluster-bootstrap CI + BH-FDR across the whole family.
 - **E3 Red-team vs static** (RQ3): matched cells incl. non-gender×non-gender; paired comparison + FDR.
 - **E4 Sensitivity/reproducibility** (RQ4): sensitivity subset; seeds ∈ {≥3}, temp ∈ {0.0, 0.7, 1.0},
   greedy vs sampling; variance/CV of headline metrics.
@@ -643,7 +702,7 @@ the top of this file.)*
 | Week | Dates | Work | Must be true at the end |
 |---|---|---|---|
 | W1 | Sep 8–14 | P0 + P1 | Env locked, manifest writes, walking skeleton green |
-| W2 | Sep 15–21 | P3 lattice (HolisticBias values) + **P4a** templates + P5 spine on ~1B dev model + **Kaggle timing pilot** | Prompts regenerate byte-identically; **measured** GPU-h per 1k prompts |
+| W2 | Sep 15–21 | P3 lattice + **P4a** templates + P5 spine on ~1B dev model + **Kaggle timing pilot** | ✅ **done 18 Sep** — prompts regenerate byte-identically; pilot **measured** ~14.0 / ~14.8 s/prompt at NF4 on a T4 (§7), which settled the E1 grid and moved the sweep to a university GPU |
 | W3 | Sep 22–28 | P6 scoring: ≥2 scorers + **drift control**; P2 CrowS-Pairs loader + screening + **P4b** extractive renderer; small-scale smoke run | Smoke run passes end-to-end; drift quantified |
 | — | **Sep 28–29** | **HARD GO / NO-GO** (criteria below) | Venue decision made deliberately |
 | W4 | Sep 29–Oct 5 | P7 emergence estimator (test-first) + P9 stats; **pre-registration written and git-tagged** | Synthetic recovery passes; tag predates any full run |
@@ -658,8 +717,9 @@ Post-submission: P13 release + Zenodo DOI + model/data cards. Not on the critica
 parallelizes off it or is out of scope.
 
 **Schedule consequences to respect:**
-- **The timing pilot is in W2, not later.** It sets E1's prompt budget and therefore everything after
-  it. Do not trust an estimate over a measurement.
+- ~~The timing pilot is in W2, not later.~~ **Done 18 Sep 2026** (§7). It set E1's grid (sampled, not
+  greedy) and moved the sweep to a university GPU. The rule stands for every future estimate: do not
+  trust an estimate over a measurement.
 - **The pre-registration tag is due end of W4**, because the first full run is W5.
 - **P8 red-teaming is scoped to the confirmatory axis pairs only**, with a ~100-prompt manual
   on-target audit. The binding constraint there is human time, not GPU time.
@@ -676,8 +736,13 @@ Proceed to the FAccT deadline only if **all five** hold:
 3. The scorer identity-drift control shows scorer interaction **materially smaller** than model
    interaction for **at least one** harm type. If not, the primary estimand is not measurable with
    the available scorers, and no amount of remaining schedule fixes that.
-4. The W2 timing pilot projects E1 + E4 + red-team **within the remaining free Kaggle quota** for
-   W5–W6.
+4. ✅ **MET 18 Sep 2026.** The W2 timing pilot projects E1 + E4 **within the secured university-GPU
+   budget** for W5–W6 (~a few days of wall clock at ~14 s/prompt; VRAM ~6.6–8.0 GB is not binding).
+   *Criterion restated:* the original wording read "within the remaining free Kaggle quota", which the
+   measurement falsified for the confirmatory sweep — hence the host change (§7). The free-tier figure
+   survives as the **reproducibility check**, not the schedule check: the reference configuration must
+   still fit ~3 Kaggle weekly quotas, because that is what novelty claim 6 asserts. **Red-team compute
+   is not in the pilot's table and must be budgeted separately before W5.**
 5. **≥2 non-gender × non-gender confirmatory pairs project as `powered`** at the pre-registered
    minimum N (claim 5).
 
@@ -692,8 +757,13 @@ behind it in `docs/methods.md`.
 - **Fixed external deadline — 8 weeks** (High/High): narrow confirmatory scope locked from day one
   (§1); W2 timing pilot; W3/W4 hard go/no-go with a named fallback venue; breadth items explicitly
   out of scope rather than "stretch."
-- **Compute over free quota** (High/High): scope to Kaggle ~30 h/wk; sensitivity grid on a subset;
-  resumable harness; W2 timing pilot.
+- **Compute over quota** (High/High): **partly realized and mitigated.** The W2 pilot showed the
+  confirmatory sweep does *not* fit the free Kaggle quota in the weeks available, so the sweep moved
+  to a university GPU (§7) and Kaggle became the reproducibility path. Remaining mitigations unchanged:
+  sensitivity grid on a subset, resumable harness, red-team budgeted separately. **New residual risk:**
+  the schedule now depends on continued access to that GPU — if it is lost, the fallback is the
+  Kaggle path at ~3 weekly quotas, which does not fit before 3 Nov and would trigger the §13 venue
+  fallback rather than a scope cut.
 - **Power collapse in intersectional cells** (High/High): depth fixed at 2; **6–8 pre-registered
   confirmatory axis pairs as the entire FDR family**; pre-registered min N; under-N cells
   descriptive-only.
