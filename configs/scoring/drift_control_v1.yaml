@@ -1,0 +1,90 @@
+# The `neutral_declarative` control family for the scorer identity-drift control (P6, §9).
+#
+# THIS IS A PROMPT-SET CONFIG, NOT A PROMPT SET. It is validated by the same `PromptSetConfig` and
+# rendered by the same `TemplateRenderer` as the P4a frames, over the same lattice cells and the
+# same carrier. That reuse is the whole design: the control inherits P4a's leakage guard, its
+# article rule and P3's `compose_rank` order for free, which is what makes it "matched by
+# construction" rather than matched by careful copying. `margins/prompts/render.py` carries a
+# TODO(P6) saying exactly this.
+#
+# WHAT THESE SENTENCES ARE FOR. They are known-neutral: each describes an unremarkable action and
+# contains no evaluative content whatsoever, so ANY harm score they attract is attributable to the
+# identity term and nothing else. Scoring them through every scorer and fitting the same
+# A + B + A:B on the result gives each scorer's OWN interaction over identity terms, which is then
+# reported BESIDE the model's. A scorer whose own interaction is comparable in magnitude to the
+# model's makes that harm type descriptive-only.
+#
+# THEY ARE NEVER SENT TO A MODEL. No generation happens; this is one extra scoring pass over cheap
+# text. They are wrapped as pseudo-`Response` records purely so they flow through the unchanged
+# `Scorer.score(responses)` path — the same code and the same loaded instrument that scored the
+# model output, which is the only way to guarantee the two conditions are comparably measured.
+#
+# FRAME SELECTION RULE, applied to all four and recorded so it can be criticised:
+#   1. DECLARATIVE, PAST TENSE, MUNDANE ACTION. No frame requests an opinion, an evaluation, a
+#      problem or a trajectory. A frame with any valence of its own would put that valence into the
+#      drift estimate and be indistinguishable there from scorer identity sensitivity.
+#   2. NO IDENTITY CUE OUTSIDE THE SLOT. Enforced at render time by the same guard as P4a, against
+#      both the value vocabulary and the axis vocabulary.
+#   3. IDENTITY IS NEVER SENTENCE-INITIAL. Same reason as P4a: capitalising the slot would rewrite
+#      pinned orthography ("Black", "Deaf"). Two frames open with "The" and one with "I"/"Someone"
+#      to satisfy this.
+#   4. BOTH INTERFACES EXERCISED. Two frames use `descriptor`+`carrier`, one uses the `article`
+#      part, and one is carrier-free via `descriptor_conjoined` — mirroring the P4a set so the
+#      control is not systematically shorter or simpler in construction than what it corrects.
+#
+# FOUR FRAMES, NOT NINE. The control needs enough text per cell to estimate a scorer's response
+# stably, not the frame diversity that R1's prompt-paraphrase analysis requires of the real set.
+# 4 frames x 110 cells = 440 control texts per family, scored once. That is cheap and it is matched.
+
+template_version: "drift_control_v1@2026-09-18"
+
+license: "MIT"
+
+authored_at: "2026-09-18T00:00:00Z"
+
+task_type: open_gen
+
+# No decoding happens for control text — it is rendered and scored, never generated. The key is
+# recorded because `Prompt` requires one; `margins.scoring.drift.CONTROL_DECODING_KEY` is the
+# sentinel that appears on the pseudo-responses, and it is deliberately not a real profile name.
+decoding_key: "control_v1"
+
+description: |
+  Four neutral declarative frames for the identity-drift control. See the header comment for the
+  frame selection rule and for why this is a prompt-set config that never reaches a model.
+
+templates:
+  - id: walked_to_station
+    file: walked_to_station.jinja
+    note: >-
+      Attributive descriptor with carrier, definite article. The plainest possible frame.
+
+  - id: saw_at_bus_stop
+    file: saw_at_bus_stop.jinja
+    note: >-
+      First-person observation, exercising the `article` part directly so the indefinite-article
+      rule is applied to the control exactly as it is to the real prompts.
+
+  - id: filled_in_form
+    file: filled_in_form.jinja
+    note: >-
+      Bureaucratic, entirely affect-free action. Included because the other three involve movement
+      or leisure, and a scorer's valence response to the ACTIVITY should not covary with the family.
+
+  - id: sat_down_book
+    file: sat_down_book.jinja
+    note: >-
+      CARRIER-FREE, predicative, constituents joined by "and" — the same construct choice the P4a
+      `someone_who_is` frame makes. Present so the marked-register artifact ("a female person") is
+      represented in the control in the same proportion it is in the real set; a control with no
+      carrier-free frame would estimate drift for a register the prompt set partly avoids.
+
+carriers:
+  - noun: person
+    axis_neutral: true
+    note: >-
+      IDENTICAL to the P4a prompt set's carrier, deliberately. A different carrier would make the
+      control differ from the model condition in two ways at once, and the drift estimate would no
+      longer be attributable to identity alone.
+
+article_overrides: {}

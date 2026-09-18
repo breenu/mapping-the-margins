@@ -8,7 +8,7 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ complete.** P0: environment, `margins.repro`,
+**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ complete.** P0: environment, `margins.repro`,
 `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces`
 (Protocols), walking skeleton, and the schema field-freeze test. P3: `margins.lattice` —
 `LatticeConfig` (`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a
@@ -16,12 +16,96 @@ implementing a new phase.
 `TemplateRenderer`, 9 versioned Jinja frames, the leakage guard, and the phrase review (all 4
 findings resolved; lattice bumped to **v1.1**). P5: `margins.inference` — `DecodingConfig` +
 `decoding_hash`, the pinned `ModelSpec`s (decision #2 closed), `HFBackend`, and the resumable
-`RunHarness`. All four gates green on `win_amd64` and in CI on both locked environments.
+`RunHarness`. P6: `margins.scoring` — the 4-scorer roster, within-benchmark standardization with an
+executable sign contract, triangulation + agreement, the identity-drift control, and the calibration
+scaffold. All four gates green on `win_amd64` (**480 core tests + 31 inference-marked**) and in CI on
+both locked environments.
 
 **The Kaggle timing pilot has been RUN (18 Sep 2026) and decision #8 — the E1 grid and the compute
 plan — is CLOSED.** Do not re-recommend running it; the numbers are below and in decision #8.
 
-**NEXT TASK: P6 — scoring, triangulation, and the scorer identity-drift control.** Not started.
+**NEXT TASK: P7 — the emergence estimator and the cross-paradigm comparison.** Not started.
+Test-first against synthetic data with known answers (§5): injected interaction recovered within CI,
+zero-interaction → ~0, permutation null centred on ~0. **P6 emits both series P7 needs and fits
+nothing** — see below.
+
+### P6 as built (for P7 to consume)
+
+- **`schemas.py` was NOT touched.** `ItemScore` already had every field P6 needed, `condition ∈
+  {model, drift_control}` included. `tests/test_schema_field_freeze.py` is unedited. The only shared
+  record that changed is `RunManifest`, which gained a `scoring` block exactly as P5 gave it
+  `inference` — a deliberate contract change, logged in the field-freeze test.
+- **Roster = 2 harm types × 2 scorers, and the ≥2 rule is a LOAD FAILURE, not a convention.**
+  `ScoringConfig` refuses a harm type with fewer than two scorers **and** one whose scorers share a
+  `mechanism` — because two classifiers agree with each other and are wrong together, which is
+  precisely what §9 says agreement cannot detect. So each harm type pairs a transformer with a
+  rule-based method:
+
+  | harm_type | scorer | mechanism | pin |
+  |---|---|---|---|
+  | `toxicity` | `toxic_bert` | neural | `unitary/toxic-bert` @ `4d6c22e7…` (apache-2.0), label `toxic` |
+  | `toxicity` | `ldnoobw_lexicon` | lexicon | LDNOOBW @ `5faf2ba4…`, 403 terms, CC-BY-4.0 |
+  | `regard` | `regard_classifier` | neural | `sasha/regardv3` @ `9232a1d0…` (**cc-by-4.0**), label `negative` |
+  | `regard` | `vader_valence` | lexicon | `vaderSentiment` 3.3.2 (MIT) |
+
+  **Revisions and licences were RESOLVED, never authored** — `scripts/pin_scorers.py --write` for the
+  checkpoints (it also verifies the configured **label exists at that revision**, so a re-pin cannot
+  silently start reading a different column), `scripts/fetch_lexicons.py --write` for the wordlist.
+  Both stop rather than substituting. The regard licence was read off the Hub and is CC-BY-4.0; the
+  placeholder had said MIT and that was wrong.
+- **`detoxify` is deliberately UNUSED.** It is `sys_platform == 'linux'`, so a detoxify-backed scorer
+  could never run on the dev box or the core CI job — the wrong place for the instrument producing
+  the primary estimand's harm signal. The same checkpoint loads through `transformers`, which is
+  ungated in the extra and comes under our own pinning rules.
+- **The sign contract is executable.** `standardize_within_benchmark` takes `benchmark` as a
+  **required keyword** and refuses rows from any other source. Every scorer declares a `sign` *and* a
+  `SignProbe` (a known-harmful / known-benign pair), so `verify_sign` **fails** instead of the sign
+  merely being asserted; `scripts/run_scoring.py` runs it on the real instruments before scoring
+  anything. Standardization groups by `(benchmark, scorer, harm_type, condition)` — per condition
+  because z-scoring model output together with control text would subtract a partly-control mean,
+  i.e. smuggle in the point-subtraction §9 forbids. A zero-variance group standardizes to 0.0 and is
+  **reported** as degenerate, never NaN.
+- **Krippendorff's α is computed in CLOSED FORM, and the package is the test oracle.** `krippendorff`
+  at interval level builds a coincidence matrix over *distinct observed values*; with continuous
+  scores that is O(n·V²) — **1,430 units already asks for 22 GiB**, and the confirmatory design is
+  ~49,500 renderings. Subsampling to fit would make the reported α a property of the subsample. The
+  closed form is O(n) and exact; `tests/test_triangulation.py` checks it against the package to
+  1e-12 (with and without missing ratings) and separately runs it at 20,000 units. **This was found
+  by running the real pipeline, not by a test** — it is the reason to keep doing that.
+- **Drift control: two families, both series emitted, NOTHING point-subtracted.**
+  `prompt_echo` (the 990 P4a prompts) + `neutral_declarative` (440 = 4 new frames × 110 cells,
+  rendered through the **ordinary `TemplateRenderer`**, so the leakage guard, article rule and
+  `compose_rank` order all apply unchanged — this is what `render.py`'s `TODO(P6)` anticipated).
+  Control texts ride as **pseudo-`Response` records** (a documented CONSTRUCT CHOICE: sentinel
+  `model_id="drift_control::template"`, `seed=0`, `quant="none"`) so they flow through the *unchanged*
+  `Scorer.score(responses)` path — the same code and the same loaded instrument that scored the model
+  output. `data/scoring/drift_control.parquet` carries `axis_a/value_a/axis_b/value_b` **resolved
+  from the lattice**, so P7 can fit `A + B + A:B` on the scorer's own series without parsing a
+  `cell_id`. P6 fits nothing: no link function, no SE, no CI.
+- **⚠ EARLY SIGNAL, NOT A FINDING — `toxic_bert` shows a large own-interaction.** On a real run,
+  `blindness × race` came out at **+1.71 SD** from text containing no harm whatsoever, and
+  `regard_classifier` at +0.67–0.80 on two pairs. The lexicon scorers sit at ~0.00. This is exactly
+  the fabricated-emergence mode §9 predicts, and it is **preliminary**: tiny n, no CI, no
+  significance, contrast computed by hand. **Go/no-go criterion 3 needs only ONE harm type to
+  survive**, and having two harm types plus two lexicon legs is why that is still reachable. P7/P9
+  enforce the consequence: *a scorer whose own interaction is comparable to the model's makes that
+  harm type DESCRIPTIVE-ONLY.*
+- **Calibration is a SCAFFOLD; the labeling is the human's.** Deterministic, stratified by cell order
+  × scorer-disagreement tercile (a uniform draw would spend the budget confirming true negatives),
+  seeded through `set_global_seed`, bounded to §9's 150–300 by the schema. Precision/recall are
+  `None` rather than 0.0 on an empty denominator — "never fired" and "always wrong" are different
+  facts. **No real labels exist yet**; `data/scoring/calibration_report.md` is unwritten until they do.
+- **First Parquet in the repo, and its determinism is the WEAKER claim, stated.** Parquet embeds
+  writer metadata, so unlike the lattice/prompt exports it is **not byte-deterministic**. What is
+  asserted and tested is **round-trip content equality on a canonically sorted frame** — which is what
+  P7 depends on. `agreement.csv`/`.md` *are* byte-deterministic.
+- **Open decision #7 is still open, by construction.** `ResponseScorer.score()` **refuses** a paired
+  response rather than text-scoring it; the `TODO(P2)` in `scoring/base.py` names where a
+  `PairedScorer` will read `Response.stereo_preference` instead. Nothing is encoded.
+- **`configs/config.yaml` gained `scoring_name`** (the `_name` suffix rule again — `configs/scoring/`
+  is a Hydra config GROUP). New **core** deps, not the inference extra, because agreement,
+  standardization, drift arithmetic and calibration must all run on the torch-free CI job:
+  `krippendorff`, `scikit-learn` (previously an undeclared `pingouin` transitive), `vaderSentiment`.
 
 ### P5 as built (for P6 to consume)
 
@@ -212,7 +296,7 @@ a RESOLVED note that matches any cell fails the suite.
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → **P5** → P6 → P7 → *then* P2 (CrowS-Pairs) →
+> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → **P7** → *then* P2 (CrowS-Pairs) →
 > **P4b** (ExtractiveRenderer) → P8 → P9 → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
@@ -270,7 +354,15 @@ uv run python scripts/pin_models.py                       # verify every pinned 
 uv run python scripts/run_inference.py --model llama32_1b_instruct --limit 20   # local smoke
 uv run python scripts/run_inference.py --model llama32_1b_instruct --resume     # continue a run
 uv run python scripts/build_pilot_sample.py               # regenerate the Kaggle pilot's data
-# The Kaggle timing pilot is run BY THE HUMAN on Kaggle — see notebooks/kaggle_timing_pilot.ipynb.
+# The Kaggle timing pilot was RUN 18 Sep 2026 — decision #8. Do not re-run or re-recommend it.
+
+# P6 scoring. Runs on the CORE env: only the two neural scorers need --extra inference, and their
+# tests are `inference`-marked. Both pin verifiers STOP rather than substituting.
+uv run python scripts/fetch_lexicons.py                   # --verify; --write re-pins + prints YAML
+uv run python scripts/pin_scorers.py                      # --verify revisions AND label presence
+uv run python scripts/run_scoring.py --responses data/responses/<model>/<run_id>.jsonl
+uv run python scripts/build_calibration_sample.py --harm-type toxicity --responses <file>
+uv run python scripts/calibration_report.py --labels data/scoring/labels_toxicity.jsonl
 
 # Quality gates — all must pass before crossing a phase boundary.
 uv run pytest -q

@@ -43,6 +43,13 @@ REQUIRED_FIELDS = {
     # unquantized, and a manifest where that is indistinguishable from a real NF4 run makes the
     # recorded constant worthless. None for runs that load no model.
     "inference",
+    # CONTRACT CHANGE 18 Sep 2026 (P6), the same shape as the P5 addition above. A score is a
+    # function of the response AND of the instrument: the same scorer_id under a different
+    # classifier revision, lexicon digest, sign or threshold is a different instrument producing
+    # different numbers. This block records every scorer's pin plus the agreement achieved, so a
+    # score table is auditable from the committed manifest rather than only from the gitignored
+    # artifact. None for runs that score nothing.
+    "scoring",
 }
 
 FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)

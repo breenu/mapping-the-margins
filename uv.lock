@@ -491,6 +491,18 @@ wheels = [
 ]
 
 [[package]]
+name = "krippendorff"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/1c/839234d9b9ca3c2c1f9445bb7f3022662face6cc6f9e3f915d8b7654dea7/krippendorff-0.8.2.tar.gz", hash = "sha256:f975bf4b5d93439d3264c4fc85a45d014aca9f5f9fca17f18fa2f3c89ee158ca", size = 18229, upload-time = "2025-11-03T03:03:39.821Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/4f/597b65bc88a031ee68b459fec05f8b40a60c3c3f6d5cde5b1403d965d199/krippendorff-0.8.2-py3-none-any.whl", hash = "sha256:1922ff73f7caa5faab6237a1abcb4f3e6ab605e3f7d39acd7998176873b8cd57", size = 18616, upload-time = "2025-11-03T03:03:38.583Z" },
+]
+
+[[package]]
 name = "librt"
 version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -520,6 +532,7 @@ source = { editable = "." }
 dependencies = [
     { name = "hydra-core" },
     { name = "jinja2" },
+    { name = "krippendorff" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "omegaconf" },
@@ -528,9 +541,11 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "rapidfuzz" },
+    { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
     { name = "statsmodels" },
+    { name = "vadersentiment" },
 ]
 
 [package.optional-dependencies]
@@ -564,6 +579,7 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'inference'", specifier = ">=0.36.2" },
     { name = "hydra-core", specifier = ">=1.3,<2" },
     { name = "jinja2", specifier = ">=3.1,<4" },
+    { name = "krippendorff", specifier = ">=0.6,<0.9" },
     { name = "llama-cpp-python", marker = "extra == 'llamacpp'", specifier = ">=0.2.90,<0.4" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11,<2" },
@@ -577,11 +593,13 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2,<9" },
     { name = "rapidfuzz", specifier = ">=3.9,<4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<0.15" },
+    { name = "scikit-learn", specifier = ">=1.5,<2" },
     { name = "scipy", specifier = ">=1.11,<2" },
     { name = "seaborn", specifier = ">=0.13,<0.14" },
     { name = "statsmodels", specifier = ">=0.14,<0.15" },
     { name = "torch", marker = "extra == 'inference'", specifier = ">=2.3,<3" },
     { name = "transformers", marker = "extra == 'inference'", specifier = ">=4.44,<5" },
+    { name = "vadersentiment", specifier = ">=3.3,<4" },
 ]
 provides-extras = ["inference", "llamacpp", "dev"]
 
@@ -1441,6 +1459,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
+]
+
+[[package]]
+name = "vadersentiment"
+version = "3.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/8c/4a48c10a50f750ae565e341e697d74a38075a3e43ff0df6f1ab72e186902/vaderSentiment-3.3.2.tar.gz", hash = "sha256:5d7c06e027fc8b99238edb0d53d970cf97066ef97654009890b83703849632f9", size = 2466783, upload-time = "2020-05-22T15:06:32.81Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/fc/310e16254683c1ed35eeb97386986d6c00bc29df17ce280aed64d55537e9/vaderSentiment-3.3.2-py2.py3-none-any.whl", hash = "sha256:3bf1d243b98b1afad575b9f22bc2cb1e212b94ff89ca74f8a23a588d024ea311", size = 125950, upload-time = "2020-05-22T15:07:00.052Z" },
 ]
 
 [[package]]

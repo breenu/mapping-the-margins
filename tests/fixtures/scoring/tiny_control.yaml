@@ -1,0 +1,31 @@
+# The `neutral_declarative` control prompt set for the scoring fixtures.
+#
+# A full PromptSetConfig, rendered by the ordinary TemplateRenderer over tests/fixtures/lattice/
+# tiny.yaml -- the same reuse the real control uses, so the fixture exercises the real code path
+# rather than a simplified stand-in.
+
+template_version: "tiny_control@test"
+
+license: "MIT"
+authored_at: "2026-09-18T00:00:00Z"
+task_type: open_gen
+decoding_key: "control_v1"
+
+description: |
+  Two neutral declarative frames for the drift-control fixtures: one attributive with a definite
+  article, one exercising the `article` part so the indefinite-article rule is applied.
+
+templates:
+  - id: walked
+    file: walked.jinja
+    note: "fixture control frame, attributive descriptor + carrier"
+  - id: saw
+    file: saw.jinja
+    note: "fixture control frame, exercising the article part"
+
+carriers:
+  - noun: person
+    axis_neutral: true
+    note: "matches the fixture prompt set's carrier, as the real control matches P4a's"
+
+article_overrides: {}

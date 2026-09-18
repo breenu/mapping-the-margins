@@ -57,6 +57,11 @@ TRACKED_PACKAGES: Final[tuple[str, ...]] = (
     "matplotlib",
     "seaborn",
     "rapidfuzz",
+    # P6 scoring. Core deps, so these are always present -- but recorded anyway, because an
+    # agreement coefficient depends on the implementation that computed it.
+    "krippendorff",
+    "scikit-learn",
+    "vaderSentiment",
     "torch",
     "transformers",
     "bitsandbytes",
@@ -84,6 +89,10 @@ DEFAULT_LATTICE_NAME: Final[str] = "confirmatory_v1"
 #: same reason as :data:`DEFAULT_LATTICE_NAME`; ``tests/test_inference_manifest.py`` pins it against
 #: ``margins.inference.decoding.DEFAULT_DECODING``.
 DEFAULT_DECODING_NAME: Final[str] = "greedy_v1"
+
+#: Default scoring roster name. A literal for the same import-cycle reason as the two above;
+#: ``tests/test_scoring_manifest.py`` pins it against ``margins.scoring.config.DEFAULT_SCORING``.
+DEFAULT_SCORING_NAME: Final[str] = "default_v1"
 
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -154,6 +163,14 @@ class ExperimentConfig(BaseModel):
         description="Decoding profile name; must match the decoding_key stamped on the prompts.",
     )
 
+    # Added at P6. `_name` suffix for the same reason as the three above: `configs/scoring/` is a
+    # Hydra config GROUP, and a key colliding with a group name cannot be overridden at all.
+    scoring_name: str = Field(
+        default=DEFAULT_SCORING_NAME,
+        min_length=1,
+        description="Scoring roster name; its sha256 is recorded in the manifest inputs.",
+    )
+
     # Open decision #2 was settled at P5 (9 Sep 2026), but these stay optional and are populated
     # PER RUN from the resolved ModelSpec rather than being authored here -- the pinned sha lives in
     # `configs/model/<name>.yaml`, resolved by `scripts/pin_models.py`, and is copied in so the
@@ -196,6 +213,67 @@ class InferenceRecord(BaseModel):
     seeds: tuple[int, ...]
 
 
+class ScorerRecord(BaseModel):
+    """One scorer as it was actually used, for runs that scored anything (P6).
+
+    Carries the pin rather than only the id, because "which scorer" is not answerable from a
+    ``scorer_id`` alone: the same id under a different classifier revision, a different lexicon
+    digest, a flipped sign or a moved threshold is a different instrument producing different
+    numbers. A manifest that recorded only the id could not tell two such runs apart.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    scorer_id: str
+    harm_type: str
+    mechanism: str
+    sign: int
+    threshold: float
+    pin_digest: str
+    model_repo: str | None = None
+    model_revision: str | None = None
+    model_label: str | None = None
+    lexicon_name: str | None = None
+    lexicon_revision: str | None = None
+    lexicon_version: str | None = None
+    lexicon_sha256: str | None = None
+    lexicon_size: int | None = Field(
+        default=None, description="Terms actually loaded. A silently empty wordlist scores 0.0."
+    )
+    license: str | None = None
+
+
+class ScoringRecord(BaseModel):
+    """What the scoring stage actually did (P6).
+
+    ``agreement_summary`` is in the manifest, not only in the emitted table, because framing
+    constraint 6 makes agreement a precondition for a harm type being load-bearing -- and a run
+    whose agreement is only in a gitignored artifact cannot be audited from its manifest alone.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    scoring_name: str
+    scoring_version: str
+    scoring_hash: str
+    scorers: tuple[ScorerRecord, ...]
+    harm_types: tuple[str, ...]
+    benchmark: str
+    n_responses: int = Field(ge=0)
+    n_scores: int = Field(ge=0)
+    control_families: tuple[str, ...] = ()
+    n_control_texts: int = Field(default=0, ge=0)
+    degenerate_groups: int = Field(
+        default=0,
+        ge=0,
+        description="Standardization groups with no variance; every row became 0.0.",
+    )
+    agreement_summary: dict[str, float] = Field(
+        default_factory=dict,
+        description="harm_type -> Krippendorff alpha on the model condition, where estimable.",
+    )
+
+
 class RunManifest(BaseModel):
     """Everything needed to reconstruct a run, including what could not be determined.
 
@@ -225,6 +303,13 @@ class RunManifest(BaseModel):
         description=(
             "What the inference stage actually did, including the quantization it resolved to. "
             "None for runs that load no model, such as prompt generation."
+        ),
+    )
+    scoring: ScoringRecord | None = Field(
+        default=None,
+        description=(
+            "What the scoring stage actually did, including every scorer's pin and the agreement "
+            "it achieved. None for runs that score nothing, such as inference or prompt generation."
         ),
     )
 
@@ -347,6 +432,7 @@ def write_run_manifest(
     repo_root: Path | None = None,
     run_id: str | None = None,
     inference: InferenceRecord | None = None,
+    scoring: ScoringRecord | None = None,
 ) -> RunManifest:
     """Write ``<results_dir>/<manifest_subdir>/<run_id>.json`` and return what was written.
 
@@ -361,6 +447,7 @@ def write_run_manifest(
             inference run **resumable**: a killed sweep restarts against the same response file and
             the same manifest, rather than orphaning both. Still recorded, never random.
         inference: What the inference stage actually did. None for runs that load no model.
+        scoring: What the scoring stage actually did. None for runs that score nothing.
 
     Returns:
         The manifest **re-read and re-validated from the file on disk**, so the returned object
@@ -402,6 +489,7 @@ def write_run_manifest(
         input_checksums=dict(inputs or {}),
         quant=cfg.quant,
         inference=inference,
+        scoring=scoring,
     )
 
     destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{resolved_run_id}.json"

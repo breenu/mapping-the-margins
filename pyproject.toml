@@ -27,6 +27,15 @@ dependencies = [
     "matplotlib>=3.8,<4",
     "seaborn>=0.13,<0.14",
     "rapidfuzz>=3.9,<4",
+    # --- P6 scoring. CORE, not the `inference` extra, and deliberately so: standardization,
+    # inter-scorer agreement, the drift-control arithmetic and the calibration metrics must all run
+    # on the torch-free core CI job (Windows AND Linux). Only the HF classifier scorer needs
+    # `transformers`, which already lives in the ungated half of the `inference` extra.
+    "krippendorff>=0.6,<0.9",       # Krippendorff alpha; NOT available in pingouin (§6).
+    "scikit-learn>=1.5,<2",         # Cohen kappa. Previously only a `pingouin` TRANSITIVE --
+                                    # importing it undeclared was dishonest; declaring it changes
+                                    # nothing about resolution and everything about the record.
+    "vaderSentiment>=3.3,<4",       # Rule/lexicon valence. Pure python, MIT, cross-platform.
 ]
 
 [project.optional-dependencies]
@@ -104,6 +113,13 @@ show_error_codes = true
 
 [[tool.mypy.overrides]]
 module = ["hydra.*", "omegaconf.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# P6's scoring stack. These are CORE deps (always installed), so unlike the inference block below
+# they need no `follow_imports = "skip"` -- the check does not change with which extras are present.
+# They simply ship no type information, and strict mode will not accept an untyped import.
+module = ["krippendorff.*", "sklearn.*", "vaderSentiment.*", "pandas.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

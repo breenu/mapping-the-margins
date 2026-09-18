@@ -123,6 +123,47 @@ uv run python scripts/fetch_holistic_bias.py    # once: retrieve the pinned desc
 uv run python scripts/build_lattice.py --verify # build, verify every term, write both exports
 ```
 
+## What P6 gives you
+
+- **`configs/scoring/default_v1.yaml`** — the scorer roster, and two rules that are **structural
+  rather than conventional**: a harm type measured by fewer than two scorers does not load, and
+  neither does one whose scorers share a `mechanism`. Two classifiers agree with each other and are
+  wrong together, so "independent" means two ways of being wrong — a transformer paired with a
+  wordlist, for each of `toxicity` and `regard`.
+- **`margins.scoring.standardize_within_benchmark`** — the source key is a **required keyword** and
+  rows from another benchmark are refused. Every scorer declares a `sign`, and every roster entry
+  carries a `SignProbe` so `verify_sign` can *fail* rather than the sign merely being asserted. A
+  mis-signed scorer inverts every downstream effect while producing entirely plausible output.
+- **`margins.scoring.Triangulator`** — runs the roster and reports Krippendorff's α (interval, over
+  `standardized`) and pairwise Cohen's κ. Agreement is an emitted artifact, not an internal check,
+  because §9 makes it a precondition for a harm type being load-bearing.
+- **`margins.scoring.drift`** — the **identity-drift control**, built as a designed experiment.
+  Known-neutral text carrying the same descriptors is scored through every scorer, in two families:
+  the P4a prompts themselves, and neutral declaratives rendered through the *same* `TemplateRenderer`
+  (so the control inherits the leakage guard and article rule rather than reimplementing them).
+  Both series are emitted; **nothing is point-subtracted** — P7 fits `A + B + A:B` on each and
+  reports them side by side.
+- **`margins.scoring.calibration`** — sampling, the label schema, and precision/recall. The sample is
+  deterministic and stratified by cell order × scorer disagreement. **The labeling is the human's.**
+- **Artifacts** — `data/scoring/{scores,drift_control}.parquet` (the project's first Parquet:
+  determinism here is *round-trip content equality on a sorted frame*, **not** byte identity, because
+  Parquet embeds writer metadata) plus a byte-deterministic `agreement.csv` / `agreement.md`.
+
+Scorer pins are **resolved, never authored**, exactly as the P5 model pins are, and both verifiers
+stop rather than substituting:
+
+```bash
+uv run python scripts/fetch_lexicons.py          # --verify; --write re-pins and prints the block
+uv run python scripts/pin_scorers.py             # --verify revisions AND that the label exists
+uv run python scripts/run_scoring.py --responses data/responses/<model>/<run_id>.jsonl
+uv run python scripts/build_calibration_sample.py --harm-type toxicity --responses <file>
+uv run python scripts/calibration_report.py --labels data/scoring/labels_toxicity.jsonl
+```
+
+`detoxify` is deliberately **unused**: it is Linux-gated, so a detoxify-backed scorer could never run
+on the Windows dev box or the core CI job. The same checkpoint is loaded through `transformers`
+instead, which works on both locked environments and comes under this project's own pinning rules.
+
 ## Compute
 
 Development runs on a Windows laptop (core + dev extras, no `torch`). The 7–8B generative sweep and
