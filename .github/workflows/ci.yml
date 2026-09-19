@@ -9,6 +9,10 @@ on:
   schedule:
     # Nightly, for the gated inference job only.
     - cron: "0 3 * * *"
+  # On demand, so the gated inference job can be VERIFIED after a change to it rather than only
+  # observed the next morning. Without this, a fix to that job has a ~24h feedback loop and the
+  # temptation is to assume it worked.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -61,7 +65,9 @@ jobs:
     # back to an unquantized load and records that it did.
     name: inference extra (CPU only, no GPU on GitHub runners)
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'inference-ci')
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      || contains(github.event.pull_request.labels.*.name, 'inference-ci')
     env:
       MARGINS_TEST_MODEL: tiny_random_llama
       # Pinned: the determinism claim holds at a FIXED thread count, so a runner that varies its
