@@ -18,11 +18,15 @@ an executable sign contract, triangulation + agreement, the identity-drift contr
 comparison.
 
 **P9 ✅ `margins.stats` — DONE 19 Sep 2026, and it changed the design.** All four gates green on
-`win_amd64` and in CI.
+`win_amd64` and in CI on both OSes (`core (ubuntu-latest)` and `core (windows-latest)`).
+
+**✅ PRE-REGISTRATION TAGGED: `prereg-v1` at commit `067b50e`, 19 Sep 2026.** Every locked value
+was verified against the live configs by RECOMPUTATION before tagging, not by reading the
+document: the 168-term family from the lattice, the thresholds from `configs/stats/`, `min_cell_n`
+from `configs/lattice/`. **NO FULL EXPERIMENTAL RUN MAY BE EXECUTED AGAINST AN EARLIER COMMIT.**
+Amendments are permitted, versioned and logged in §10 of `docs/preregistration.md`.
 
 **NEXT TASK: P2 — the CrowS-Pairs loader.** Then P4b (the extractive renderer), P8, P10.
-**Before the first full run: git-tag `docs/preregistration.md`.** It is written and complete; the
-tag is a human action and must predate the first full run in git history.
 
 ### ⚠ THE P9 FINDING — read this before touching the design
 

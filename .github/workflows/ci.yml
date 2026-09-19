@@ -81,5 +81,16 @@ jobs:
       - name: Report the environment the determinism claim depends on
         run: uv run python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.get_num_threads())"
 
+      # `data/` is gitignored and regenerable, so the LDNOOBW wordlist the lexicon scorer loads
+      # is absent on a fresh runner and its P6 probe test cannot run. This job had been failing
+      # on exactly that since P6.
+      #
+      # `--fetch-pinned`, NOT `--write`: `--write` resolves upstream HEAD and re-pins, which on a
+      # machine would silently fetch whatever the wordlist looks like today and score against a
+      # version nobody recorded. This mode downloads at the revision the roster already pins and
+      # refuses to write on a digest mismatch (CLAUDE.md: never unpin to make it work).
+      - name: Fetch the scoring lexicons at their PINNED revisions
+        run: uv run python scripts/fetch_lexicons.py --fetch-pinned
+
       - name: pytest (includes the inference-marked P5 gate tests)
         run: uv run pytest -q

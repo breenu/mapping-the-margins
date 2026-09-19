@@ -9,9 +9,16 @@ Two modes, matching ``scripts/pin_models.py``:
 
 * ``--verify`` (default) -- check that every lexicon declared in the roster is present on disk and
   matches its recorded sha256. This is what a reproducer runs.
-* ``--write`` -- resolve the upstream commit, download at that commit, and print the YAML block to
-  paste into ``configs/scoring/<roster>.yaml``. **It prints rather than edits**: a pin is a logged
-  decision, and a script that silently rewrote the roster would make re-pinning invisible in a diff.
+* ``--write`` -- resolve the upstream commit at HEAD, download at that commit, and print the YAML
+  block to paste into ``configs/scoring/<roster>.yaml``. **It prints rather than edits**: a pin is
+  a logged decision, and a script that silently rewrote the roster would make re-pinning invisible
+  in a diff. This mode RE-PINS, so it is a human action.
+* ``--fetch-pinned`` -- download each lexicon at the revision the roster ALREADY records, verify
+  the bytes against the recorded sha256, and only then write. This is what CI runs. It is
+  deliberately a separate mode from ``--write``: ``--write`` resolves HEAD, so using it to
+  populate a machine would silently fetch whatever upstream looks like today and score against a
+  wordlist nobody pinned. A digest mismatch here STOPS rather than writing (CLAUDE.md: never
+  unpin to make it work).
 
 Kept out of the test suite on purpose -- tests must not depend on the network, and the core CI job
 has none.
@@ -154,6 +161,82 @@ def verify(config: ScoringConfig, *, data_dir: Path) -> int:
     return 1 if failures else 0
 
 
+def fetch_pinned(config: ScoringConfig, *, data_dir: Path, timeout: int = 60) -> int:
+    """Download every fetched lexicon AT ITS RECORDED REVISION and verify before writing.
+
+    The distinction from :func:`write` is the whole point. ``write`` resolves upstream HEAD, which
+    is correct when a human is deliberately re-pinning and wrong everywhere else; this fetches the
+    revision the roster already names, so a machine provisioned by it holds exactly the bytes the
+    recorded scores were defined against.
+
+    Nothing is written unless its sha256 matches the pin. A mismatch means upstream rewrote
+    history at that revision, or the roster is wrong, and either way the honest response is to
+    stop and surface it rather than to score against a wordlist that is not the pinned one.
+    """
+    known = _sources_by_scorer()
+    failures = 0
+    fetched = 0
+
+    for spec in config.scorers:
+        pin = spec.lexicon_pin
+        if pin is None or pin.path is None:
+            continue  # packaged lexicon (VADER): pinned by package version, nothing to fetch.
+        source = known.get(spec.scorer_id)
+        if source is None:
+            print(
+                f"FAIL {spec.scorer_id}: roster declares a fetched lexicon this script does not "
+                "know how to retrieve. Add it to SOURCES rather than fetching it by hand.",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+        if pin.revision is None or pin.sha256 is None:
+            print(
+                f"FAIL {spec.scorer_id}: the roster records no revision/sha256 for {pin.name}, so "
+                "there is no pinned version to fetch. Re-pin with --write first.",
+                file=sys.stderr,
+            )
+            failures += 1
+            continue
+
+        destination = pin.path if pin.path.is_absolute() else data_dir / pin.path
+        if destination.is_file():
+            digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+            if digest == pin.sha256:
+                print(f"ok   {spec.scorer_id:<20} already present and pinned  {destination}")
+                continue
+
+        try:
+            payload = _normalize(fetch(source, pin.revision, timeout=timeout))
+        except (urllib.error.HTTPError, urllib.error.URLError) as error:
+            print(
+                f"STOPPING: could not fetch {source.name} at the pinned revision "
+                f"{pin.revision}: {error}. Refusing to substitute another source or revision.",
+                file=sys.stderr,
+            )
+            return 1
+
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != pin.sha256:
+            print(
+                f"STOPPING: {source.name} at pinned revision {pin.revision} has sha256 {digest}, "
+                f"but the roster pins {pin.sha256}. NOT writing it. Upstream rewrote history at "
+                "that revision, or the roster is wrong; either way this is a human decision.",
+                file=sys.stderr,
+            )
+            return 1
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        fetched += 1
+        print(f"wrote {destination}  (sha256 {digest[:12]}, pinned revision {pin.revision[:12]})")
+
+    if failures:
+        return 1
+    print(f"{fetched} lexicon(s) fetched at their pinned revisions; all digests match")
+    return 0
+
+
 def write(data_dir: Path, *, timeout: int = 60) -> int:
     """Resolve, download and digest every lexicon, then print the YAML to paste into the roster."""
     blocks: list[str] = []
@@ -220,14 +303,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Resolve upstream, download, and print the YAML pin block. Default is --verify.",
+        help="Resolve upstream HEAD, download, and print the YAML pin block. RE-PINS: a human "
+        "action. Default is --verify.",
+    )
+    parser.add_argument(
+        "--fetch-pinned",
+        action="store_true",
+        help="Download each lexicon AT THE REVISION THE ROSTER RECORDS and verify before "
+        "writing. What CI runs; never re-pins.",
     )
     args = parser.parse_args(argv)
 
+    if args.write and args.fetch_pinned:
+        parser.error(
+            "--write and --fetch-pinned are different intentions: --write RE-PINS to upstream "
+            "HEAD, --fetch-pinned materialises the pin already recorded. Choose one."
+        )
     if args.write:
         return write(args.data_dir)
 
     config = load_scoring_config(args.scoring, config_dir=args.config_dir)
+    if args.fetch_pinned:
+        code = fetch_pinned(config, data_dir=args.data_dir)
+        if code != 0:
+            return code
     return verify(config, data_dir=args.data_dir)
 
 
