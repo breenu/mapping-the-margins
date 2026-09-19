@@ -1,0 +1,167 @@
+# The statistics layer's settings (P9).
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.stats.config validates it into
+# a StatsConfig. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# This file is PRE-REGISTRATION MATERIAL. Its sha256 is recorded in every stats run manifest under
+# `stats_config`. What is NOT here, because it is not configurable: the FDR family is the lattice's
+# `confirmatory` pairs and nothing else; the p-value is a two-sided cluster-robust Wald t on
+# estimate/se with df = item clusters - 1; the permutation exchange unit is the ITEM. A config that
+# could widen the family to exploratory pairs would be a config that could manufacture a
+# significance claim the pre-registration forbids.
+
+key: confirmatory_v1
+
+# VERSION HISTORY
+#   confirmatory_v1@2026-09-19    initial stats layer (P9). Promotes P7's placeholder drift
+#                                 threshold (0.5) to a PRE-REGISTERED enforcement threshold.
+#   confirmatory_v1.1@2026-09-19  MEASURED rho replaces the assumed strip, and the minimum
+#                                 detectable effect is RE-TARGETED from 0.3 SD to 0.5 SD.
+#                                 0.3 SD proved unreachable at accessible compute once rho was
+#                                 measured (regard 0.35, CI 0.29-0.43; toxicity 0.18, CI
+#                                 0.13-0.23) -- at that rho no sampling budget reaches 80% power
+#                                 with the nine frames the prompt set then had. Effects below
+#                                 0.5 SD are reported DESCRIPTIVELY, with CIs and no
+#                                 significance claim. See docs/power_and_precision.md.
+stats_version: "confirmatory_v1.1@2026-09-19"
+
+description: |
+  Benjamini-Hochberg FDR over the pre-registered confirmatory axis pairs' FREE interaction
+  contrasts, a structure-respecting permutation baseline (B3), a simulation-based power analysis
+  on the real clustered design, and the mechanically enforced scorer identity-drift downgrade.
+
+fdr:
+  alpha: 0.05
+
+  # Benjamini-Hochberg. `fdr_by` is ALSO computed and reported as a sensitivity column, which is
+  # how §8's "state the PRDS assumption explicitly or use fdr_by" is satisfied in both directions.
+  method: fdr_bh
+  report_fdr_by: true
+
+  # DECIDED 19 Sep 2026, with the human, before any P9 code.
+  #
+  # The family is the (|A|-1)(|B|-1) FREE interaction contrasts of each confirmatory pair -- which
+  # are exactly the design's own free interaction columns, so the subset is canonical rather than
+  # an arbitrary choice of which cells get a q.
+  #
+  #   class x race     3x3 = 9      age x class       2x3 = 6
+  #   age x ability    2x3 = 6      gender x race     2x3 = 6
+  #   ability x race   3x3 = 9      ability x gender  3x2 = 6
+  #                                                   ----------
+  #                                                    42 terms
+  #   x 2 models x 2 harm types                     =  168
+  #
+  # Rejected alternatives and why:
+  #   * all |A|x|B| interaction cells (80 -> 320): the emitted gamma set is LINEARLY DEPENDENT
+  #     (rows and columns sum to zero), so the extra tests carry no extra information while
+  #     costing power on the primary claim.
+  #   * all terms including main effects (124 -> 496): main effects are B1's single-axis baseline,
+  #     not the emergence estimand (§10). Mixing them in triples the family for a claim they do
+  #     not support.
+  # The dependent gammas are still REPORTED, with cluster-bootstrap CIs, descriptively.
+  family_terms: free_interaction
+
+  # §8: "BH assumes independence or PRDS; tests here share items, templates, and a model, so either
+  # state the PRDS assumption explicitly or use fdr_by." Stating it is mandatory -- the config FAILS
+  # TO LOAD under fdr_bh with this left empty.
+  prds_justification: >-
+    The family is the free interaction contrasts of six axis pairs, crossed with two models and two
+    harm types. Within one pair the contrasts are estimated from one fit and are positively
+    dependent through the shared item clusters and the shared residual scale; across pairs they
+    share the item (prompt) set, since the same frames and carriers are rendered into every cell.
+    Positive regression dependency on the subset of true nulls (PRDS) is therefore plausible rather
+    than demonstrated: the sum-to-zero coding induces NEGATIVE correlation between the gammas of a
+    row or a column, which PRDS does not cover. Benjamini-Hochberg is reported as primary because
+    the negatively dependent pairs are a minority of the family and BH is robust in simulation
+    under this design, and Benjamini-Yekutieli is reported ALONGSIDE it as the unconditional
+    guarantee. A claim that survives only under BH and not under BY is reported as such.
+
+permutation:
+  # B3, the genuinely independent null (§10). Deferred from P7 to here with the rest of the
+  # resampling machinery.
+  #
+  # `within_stratum`: permute the NON-stratum axis's labels among whole ITEMS, inside each
+  # (template frame, stratum-axis value) block. Items never cross a block, so every replicate keeps
+  # every cell's item count and the design stays identified. A naive global shuffle would break the
+  # clustering and give a falsely narrow null.
+  #
+  # `freedman_lane`: permute item-level residuals of the additive A + B fit and refit the full
+  # model. It preserves BOTH main effects exactly and is used as the calibration oracle -- the
+  # default scheme's null must be no narrower than this one.
+  scheme: within_stratum
+  stratum_axis: a
+  n_permutations: 2000
+  seed: 20260919
+
+power:
+  # ---------------------------------------------------------------------------------------
+  # THE STRUCTURAL FACT THIS SIMULATION EXISTS TO MEASURE.
+  #
+  # A cell is rendered by `frames_per_cell` template frames. Each frame x cell is ONE prompt, i.e.
+  # ONE item cluster, and the sampled seeds are repeated observations INSIDE that cluster. So a
+  # cell has `frames_per_cell` clusters no matter how many seeds are drawn: seeds buy observations,
+  # never clusters. Cell-mean variance is `rho/frames + (1-rho)/(frames*seeds)` and floors at
+  # `rho/frames`. There is a seed count beyond which more generation buys nothing at all.
+  #
+  # That is why `frames_grid` exists beside `seeds_grid`. It is not hypothetical: at the measured
+  # rho the original nine prompts per cell could not reach 80% power at ANY seed budget, and the
+  # prompt set was grown to 27 (open_gen_v1.2) as the direct consequence. The grid is kept so the
+  # same question can be re-asked if rho moves on another pair.
+  # ---------------------------------------------------------------------------------------
+
+  # The shipped P4a prompt set at open_gen_v1.2: 13 carrier-using frames x 2 carriers, plus the
+  # carrier-free frame emitted once = 27 prompts, i.e. 27 ITEM CLUSTERS per cell.
+  frames_per_cell: 27
+  frames_grid: [9, 18, 27, 36]
+
+  # The grid runs far past anything affordable ON PURPOSE. A seeds grid that stopped at the
+  # budget would report "no minimum in grid" for a design whose minimum merely sits above it,
+  # which reads identically to "no minimum exists" -- and those are completely different facts.
+  # Where the minimum is unaffordable, the number is still reported and then priced.
+  seeds_grid: [1, 2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 108, 160]
+
+  # MEASURED 19 Sep 2026, not assumed -- this is the change that re-targeted the whole design.
+  # Point estimates and upper 95% bounds for both harm types, on the class x race pair:
+  #     toxicity  0.18  (0.13 - 0.23)      regard  0.35  (0.29 - 0.43)
+  # The design is chosen against the UPPER bounds. The strip is kept rather than collapsed to a
+  # single value because rho was measured on ONE pair and is not assumed uniform across pairs.
+  icc_rho: [0.13, 0.18, 0.20, 0.23, 0.29, 0.35, 0.43]
+
+  # The minimum detectable effect, in SD units of the standardized harm score. RE-TARGETED from
+  # 0.3 to 0.5 on 19 Sep 2026: at the measured rho, 0.3 SD is not reachable at accessible
+  # compute, and reporting a design as powered for an effect it cannot see would be the exact
+  # failure this layer exists to prevent.
+  effect_size: 0.5
+
+  # Two injected patterns, because "an interaction of 0.3 SD" is ambiguous on a gamma table:
+  #   concentrated -- one intersection departs from the additive prediction by 0.3 SD
+  #                   (max|gamma| = 0.3). THE HEADLINE, matching the per-term family.
+  #   diffuse      -- the whole table carries 0.3 SD of non-additivity on average
+  #                   (RMS(gamma) = 0.3).
+  patterns: [concentrated, diffuse]
+
+  target_power: 0.8
+  n_simulations: 500
+
+  # Which real confirmatory design to simulate. The first non-gender x non-gender pair, and the
+  # largest table (4x4), so the reported minimum is not read off the easiest pair.
+  # The pair rho was measured on, and the largest table (4x4), so the design is fixed against
+  # the demanding case rather than the average one.
+  pair: ["socioeconomic_class", "race_ethnicity"]
+
+  seed: 20260919
+
+drift:
+  # ---------------------------------------------------------------------------------------
+  # PROMOTED FROM PLACEHOLDER TO PRE-REGISTERED, 19 Sep 2026.
+  #
+  # P7 emitted `comparable_ratio: 0.5` in configs/metrics/emergence_v1.yaml as a declared
+  # placeholder producing a REPORTING FLAG. Here the same number becomes an ENFORCED consequence:
+  # a harm type with any scorer whose own interaction magnitude on neutral text reaches half that
+  # scorer's own view of the model's is DESCRIPTIVE-ONLY, and the claim layer mechanically refuses
+  # to emit an FDR-significance claim for it (PROJECT_CONTEXT.md §9, framing constraint 6).
+  #
+  # The enforced number lives HERE and only here. The metrics config's copy stays a reporting flag
+  # so that one threshold is not maintained in two files.
+  # ---------------------------------------------------------------------------------------
+  descriptive_only_ratio: 0.5

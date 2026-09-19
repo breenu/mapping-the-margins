@@ -48,6 +48,12 @@ scoring_name: default_v1
 # manifest under `metrics_config`, beside the digests of the two P6 tables the run consumed.
 metrics_name: emergence_v1
 
+# Which stats config -- alpha, the FDR family definition, the permutation scheme, the power
+# settings and the PRE-REGISTERED drift-enforcement threshold -- this run declares significance
+# under (added at P9). `stats_name` for the same reason as every `_name` above: `configs/stats/`
+# is a Hydra config GROUP. Its sha256 goes into the manifest under `stats_config`.
+stats_name: confirmatory_v1
+
 # Open decision #2 CLOSED at P5 (9 Sep 2026): Llama-3.1-8B-Instruct + Mistral-7B-Instruct-v0.3
 # confirmatory, Llama-3.2-1B-Instruct for dev. The pinned revision shas live in
 # `configs/model/<name>.yaml`, resolved by `scripts/pin_models.py` and never hand-authored. These

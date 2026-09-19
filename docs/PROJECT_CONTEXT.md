@@ -538,8 +538,30 @@ Free GitHub Actions has **no GPU**; say so in the docs rather than implying CI c
   template**. A plain GLM assuming independence produces anti-conservative standard errors, and FDR
   cannot rescue inputs that are already wrong. Use cluster-robust SEs (`cov_type='cluster'`) or a
   mixed model with a random intercept for item.
-- **Power:** `statsmodels.stats.power`; fix minimum detectable effect at α=0.05, power=0.8; derive
-  minimum cell N; mark under-N cells `powered=False`.
+- **Power:** a SIMULATION on the real estimator and the real correction, not a formula (P9). A
+  closed-form power calculation would have to assume away item clustering and multiplicity, which
+  are the two things that actually bind. α=0.05, power=0.8. **RESOLVED 19 Sep 2026 — see
+  `docs/power_and_precision.md`, which is the authority.** Headline results:
+  - The **intraclass correlation was MEASURED**, not assumed: regard 0.35 (CI 0.29–0.43),
+    toxicity 0.18 (CI 0.13–0.23), on 1,728 sampled generations of the class × race pair. It could
+    not be recovered from any earlier run, because a design that generates each prompt once
+    contains no within-prompt variance at all.
+  - Cell-mean variance is `rho/m + (1-rho)/(m*k)` and **floors at `rho/m`**. **Prompts per cell
+    bound precision; samples cannot.** At the measured rho, 9 prompts per cell reaches 80% power
+    on a 0.3 SD interaction at NO sampling budget.
+  - **The minimum detectable effect was therefore RE-TARGETED from 0.3 SD to 0.5 SD**, and
+    sub-0.5 SD effects are reported descriptively with CIs and no significance claim.
+  - The design is **27 prompts per cell × 4 samples = `min_cell_n` 108 renderings/cell**, ~95
+    GPU-h. The prompt set grew to `open_gen_v1.2` (13 carrier-using frames × 2 carriers + 1
+    carrier-free frame) to supply the prompts.
+  - **A FIRST-CLASS RESULT, not a limitation:** a conventional 9-prompt design reaches only
+    **18–50% power on a MODERATE 0.5 SD interaction** at the measured rho. Null results from such
+    designs are close to uninformative, and a single-template design cannot estimate a
+    cluster-robust standard error at all.
+- ~~**The E1 grid and `min_cell_n` are ONE decision, settled together at P9.**~~ **DONE
+  19 Sep 2026: `min_cell_n = 108` and `renderings_per_cell = 108`, both written into
+  `configs/lattice/confirmatory_v1.yaml`, the 96/60 stale markers resolved. The rule that they are
+  one decision held: they are the same number.** Historical note follows.
 - **The E1 grid and `min_cell_n` are ONE decision, settled together at P9.** The W2 pilot (§7) ruled
   out greedy (~9 renderings/cell, underpowered) and the ×11 sampled grid (~99/cell, ~290% of a free
   Kaggle week), leaving a **target of ~50 renderings/cell under sampled generation at distinct
@@ -663,7 +685,7 @@ thresholds. The permutation test (B3) is deferred to P9 with the rest of the res
 | P6 | Inter-scorer α/κ reported; scorer precision/recall on 150–300 labeled items; **scorer identity-drift interaction quantified per scorer and reported**; poor-agreement and high-drift harms downgraded. **Status 18 Sep 2026: α/κ emitted (`data/scoring/agreement.{csv,md}`); the drift artifact is emitted and the control demonstrably detects a synthetic identity-sensitive scorer while returning ~0 for a neutral one AND for a main-effects-only one. The calibration SCAFFOLD is built and its metrics tested against a fixture — the 150–300 real labels are the human's and do not exist yet, so the precision/recall clause is open. The downgrade DECISION is P7/P9's; P6 emits the numbers.** |
 | P7 | Synthetic recovery test: injected interaction recovered within CI; zero-interaction → ~0. Permutation null centred on ~0 under a no-effect synthetic. **Status 18 Sep 2026: the recovery and zero-interaction clauses are MET** (`tests/test_emergence_synthetic.py`, calibration checked over 24 datasets), plus item-clustered SEs shown wider than iid and matching the analytic SD. **The permutation clause is deferred to P9** — P7 was scoped to the estimator + drift comparison; B3 rides with the stats layer's resampling. |
 | P8 | Human on-target % on a sample reported; dedup + filter logged; prompts restricted to the confirmatory axis pairs. |
-| P9 | FDR reduces significant count; power table names min detectable effect; **pre-reg tag predates first full run**; `family_size` and `correction` stamped on every corrected estimate. |
+| P9 | FDR reduces significant count; power table names min detectable effect; **pre-reg tag predates first full run**; `family_size` and `correction` stamped on every corrected estimate. **Status 19 Sep 2026: MET except the tag.** FDR monotonicity asserted over 30 random families; the family is declared from the lattice and correcting a subset RAISES; the p-value is a cluster-robust Wald t with df = item clusters − 1, held to statsmodels; the permutation null (B3) is centred on ~0 with real main effects present and does not fabricate significance over 24 datasets; the drift downgrade is ENFORCED and `is_significant` RAISES for a refused effect; `results/paper_numbers.json` is emitted. **`docs/preregistration.md` is written but NOT YET TAGGED** — that is a human action and it must predate the first full run. |
 | P10 | `make_figures.py` regenerates every figure from committed tables; greyscale/colourblind pass; **`results/paper_numbers.json` emitted and every headline number in the manuscript resolves to a key in it**. |
 | P11 | Small-scale end-to-end smoke run (tiny model, ~50 prompts, one source, full pipeline → stats → 1 figure) passes BEFORE any full run; known-direction bias shows expected sign. |
 

@@ -89,7 +89,10 @@ src = ["src", "tests", "scripts"]
 # report every finding twice and would make the drift check (which compares the two byte for byte)
 # fight the formatter. Notebooks are never load-bearing here (CLAUDE.md guardrails) and CI already
 # fails if `src/` or `scripts/` imports from `notebooks/`.
-extend-exclude = ["notebooks/kaggle_timing_pilot.ipynb"]
+extend-exclude = [
+    "notebooks/kaggle_timing_pilot.ipynb",
+    "notebooks/kaggle_rho_pilot.ipynb",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF"]
@@ -102,6 +105,11 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF"]
 # literals cannot be wrapped without corrupting the prompts they carry. The hand-written half of the
 # file is still covered by every other rule and by `ruff format --check`.
 "scripts/kaggle_timing_pilot.py" = ["E501"]
+# Same story for the rho pilot: its generated block embeds 144 real rendered prompts, whose long
+# string literals cannot be wrapped without corrupting the prompts they carry, and it additionally
+# embeds the timing pilot's host handling VERBATIM -- reformatting a verbatim copy would defeat the
+# byte-identity check that keeps the two from diverging.
+"scripts/kaggle_rho_pilot.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -120,7 +128,16 @@ ignore_missing_imports = true
 # they need no `follow_imports = "skip"` -- the check does not change with which extras are present.
 # They simply ship no type information, and strict mode will not accept an untyped import.
 # `statsmodels` joins the list at P7 for the same reason: a core dep with no type information.
-module = ["krippendorff.*", "sklearn.*", "vaderSentiment.*", "pandas.*", "statsmodels.*"]
+# `scipy` joins at P9: the Wald p-value and the Wilson interval are the first uses of it inside
+# `src`, and it ships no type information either.
+module = [
+    "krippendorff.*",
+    "sklearn.*",
+    "vaderSentiment.*",
+    "pandas.*",
+    "statsmodels.*",
+    "scipy.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

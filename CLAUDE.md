@@ -8,31 +8,89 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ · P7 ✅ complete.** P0: environment, `margins.repro`,
-`margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) + `margins.interfaces`
-(Protocols), walking skeleton, and the schema field-freeze test. P3: `margins.lattice` —
-`LatticeConfig` (`configs/lattice/confirmatory_v1.yaml`), `DeclaredLattice`, HolisticBias v1.1 as a
-**pinned descriptor source** (not a loader), and the two exports. P4a: `margins.prompts` —
-`TemplateRenderer`, 9 versioned Jinja frames, the leakage guard, and the phrase review (all 4
-findings resolved; lattice bumped to **v1.1**). P5: `margins.inference` — `DecodingConfig` +
-`decoding_hash`, the pinned `ModelSpec`s (decision #2 closed), `HFBackend`, and the resumable
-`RunHarness`. P6: `margins.scoring` — the 4-scorer roster, within-benchmark standardization with an
-executable sign contract, triangulation + agreement, the identity-drift control, and the calibration
-scaffold. All four gates green on `win_amd64` (**480 core tests + 31 inference-marked**) and in CI on
-both locked environments.
+**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P9 ✅ complete.** P0: environment,
+`margins.repro`, `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) +
+`margins.interfaces` (Protocols), walking skeleton, schema field-freeze test. P3:
+`margins.lattice`. P4a: `margins.prompts` — `TemplateRenderer`, the leakage guard, the phrase
+review. P5: `margins.inference`. P6: `margins.scoring` — the 4-scorer roster, standardization with
+an executable sign contract, triangulation + agreement, the identity-drift control. P7:
+`margins.metrics` — the emergence estimator, item-clustered SEs, the cluster bootstrap, the drift
+comparison.
 
-**The Kaggle timing pilot has been RUN (18 Sep 2026) and decision #8 — the E1 grid and the compute
-plan — is CLOSED.** Do not re-recommend running it; the numbers are below and in decision #8.
+**P9 ✅ `margins.stats` — DONE 19 Sep 2026, and it changed the design.** All four gates green on
+`win_amd64` and in CI.
 
-P7: `margins.metrics` — the emergence estimator (OLS, identity link, sum-to-zero coding over an axis
-pair's order-2 cells, **cluster-robust SEs by item**, **cluster bootstrap over items stratified by
-cell**), the drift-series fit through the *same* estimator, and the side-by-side comparison. All four
-gates green on `win_amd64` (**560 tests**, 49 of them P7's synthetic-recovery gate) and in CI.
+**NEXT TASK: P2 — the CrowS-Pairs loader.** Then P4b (the extractive renderer), P8, P10.
+**Before the first full run: git-tag `docs/preregistration.md`.** It is written and complete; the
+tag is a human action and must predate the first full run in git history.
 
-**NEXT TASK: P9 — the statistics layer.** Not started. FDR over the pre-registered family, power
-(which fixes `min_cell_n` **together with** the rendering budget — decision #8), the permutation
-test (B3 — deferred from P7, see below), sensitivity (E4), and the pre-registration tag **before**
-the first full run. Then P2 → P4b (the extractive vertical), P8, P10.
+### ⚠ THE P9 FINDING — read this before touching the design
+
+The power analysis was meant to fix `min_cell_n`. It instead falsified the design twice, and both
+corrections are load-bearing. **Do not re-litigate any of this; it is measured.**
+
+1. **Precision is bounded by PROMPTS PER CELL, not renderings per cell.** Cell-mean variance is
+   `rho/m + (1-rho)/(m*k)` for `m` prompts and `k` samples, and it **floors at `rho/m`**. Sampling
+   more generations from the same prompts hits a ceiling no budget beats. Executable: at 9 prompts
+   and rho 0.4, simulated power at 20 and at 100 samples differs by less than 0.05.
+2. **rho was MEASURED (do not re-run, do not re-assume):** regard **0.35** (CI 0.29–0.43),
+   toxicity **0.18** (CI 0.13–0.23), from 1,728 sampled generations of the class × race pair
+   through Llama-3.1-8B-Instruct at NF4. It is **one pair**, the demanding 4×4, and is NOT assumed
+   uniform across pairs. The dev run could never have supplied it: one response per prompt
+   contains no within-prompt variance at all.
+3. **The MDE was RE-TARGETED from 0.3 SD to 0.5 SD**, because 0.3 SD is unreachable at accessible
+   compute at that rho. **Sub-0.5 SD effects are EXPLORATORY/DESCRIPTIVE** — reported with CIs,
+   clearly labelled, no significance claim. They are not discarded.
+4. **The design: 27 prompts/cell × 4 samples = `min_cell_n` 108 renderings/cell, ~95 GPU-h.** The
+   96/60 stale markers in `configs/lattice/confirmatory_v1.yaml` are RESOLVED.
+5. **THE FIELD RESULT, a first-class paper claim:** a conventional 9-prompt design reaches only
+   **18–50% power on a MODERATE 0.5 SD interaction** at the measured rho. Null results from such
+   designs are close to uninformative; a single-template design cannot estimate a cluster-robust
+   SE at all. Written up in **`docs/power_and_precision.md`**, keyed in
+   `results/paper_numbers.json` under `field.power_at_9_prompts.*`.
+
+### P9 as built (for P2/P10 to consume)
+
+- **CONTRACT CHANGE: `ExperimentConfig` gained `stats_name`, `RunManifest` gained a `stats`
+  block.** `tests/test_schema_field_freeze.py` and `tests/test_manifest.py` updated deliberately.
+  `margins.metrics.metric._triangulate` was renamed to the public `triangulate` (pure rename) so
+  P9 reuses the triangulation rule instead of duplicating it.
+- **FDR family = the FREE interaction contrasts of the confirmatory pairs. Size 168** (42 terms ×
+  2 models × 2 harm types). The emitted gamma set is linearly dependent, so correcting all 320
+  interaction cells would add tests carrying no information; main effects are B1's baseline and
+  are excluded. Configurable via `family_terms` so the choice is visible, defaulted to
+  `free_interaction`.
+- **`correct()` is the ONLY place `q`/`family_size`/`correction` are set**, it is pure (no I/O, no
+  RNG, no clock), and `tests/test_fdr_correction.py` enforces that with an **AST scan of `src/`**.
+- **Correcting a subset RAISES.** The family is declared from the lattice before any estimate is
+  read. A pair P7 reported not estimable is *excused*, carries P7's own reason, and shrinks the
+  family; a member that merely went missing is an error.
+- **p-values:** two-sided cluster-robust Wald t, **df = item clusters − 1**, taken from the
+  *triangulated* fit report. Not `n_obs`: df does not grow with samples. **Exploratory pairs get
+  no p and no q** — a bare p invites exactly the reading the split exists to prevent.
+- **`check_effects_match_fits` asserts every effect equals its joined FitTerm to 1e-12**, so a
+  mis-join cannot silently supply a wrong df and therefore a wrong q.
+- **The permutation test (B3) is built** — P7's deferred gate clause is closed. Whole items
+  exchange within `(frame, stratum value)` blocks; `p = (1+c)/(B+1)`, never zero; reported beside
+  the GLM p and **never in the FDR family**. Freedman-Lane ships as the calibration oracle.
+- **The drift downgrade is ENFORCED at the pre-registered 0.5**, recomputed from raw magnitudes
+  and never inheriting P7's placeholder flag; disagreements with P7 are reported, not swallowed.
+  **`ClaimGate.is_significant` RAISES for a refused effect** rather than returning False, so a
+  table that forgets the gate crashes instead of printing a star. A refusal is a ROW, never an
+  absence.
+- **`results/paper_numbers.json` is emitted and committed**, byte-deterministic, every entry
+  naming its run manifest or the explicit no-run sentinel.
+- **`margins.stats.icc`** measures the intraclass correlation: nested ANOVA with cells a FIXED
+  factor, so between-cell signal never enters rho; exact F-based interval.
+- **Artifacts** under `data/stats/`: `effects_corrected`, `family`, `descriptive_only`, `claims`
+  (Parquet) plus `fdr_report.md` (byte-deterministic) and `power_analysis*.json`. No new
+  dependencies.
+- **Both Kaggle pilots are FROZEN.** `open_gen_v1.2` changed every `prompt_id`, so regenerating
+  either would make it describe a corpus its run never saw. Their drift guards now assert a
+  **pinned block sha256** instead of "matches the live config". Re-running one means checking out
+  the revision it was generated at.
+- **`scripts/run_stats.py` on the dev artifact reports NOTHING TO CORRECT** — correct, because the
+  dev run has one rendering per cell and P7 found every pair not estimable.
 
 ### P7 as built (for P9 to consume)
 
@@ -367,8 +425,7 @@ a RESOLVED note that matches any cell fails the suite.
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → **P9** (pulled forward: the
-> pre-registration tag needs it and nothing in it depends on P2) → *then* P2 (CrowS-Pairs) →
+> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → P9 ✅ → **P2** (CrowS-Pairs) →
 > **P4b** (ExtractiveRenderer) → P8 → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
@@ -440,6 +497,14 @@ uv run python scripts/calibration_report.py --labels data/scoring/labels_toxicit
 # --n-resamples overrides the config's 2000 for smoke runs only (recorded as used).
 uv run python scripts/run_metrics.py
 uv run python scripts/run_metrics.py --n-resamples 200      # smoke
+
+# P9 stats. Core env, no torch. The ONLY stage that declares significance.
+uv run python scripts/run_stats.py              # FDR + drift enforcement + claims
+uv run python scripts/run_power_analysis.py     # the power simulation (slow, ~30 min)
+uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json
+# rho was MEASURED 19 Sep 2026 (regard 0.35, toxicity 0.18). Do NOT re-run these two: both
+# pilots are frozen records and their drift guards are now pinned-digest tests.
+#   scripts/kaggle_rho_pilot.py (Kaggle, GPU)   scripts/measure_rho.py (local, CPU)
 
 # Quality gates — all must pass before crossing a phase boundary.
 uv run pytest -q

@@ -68,42 +68,52 @@ def test_torch_is_imported_lazily(pilot: ModuleType) -> None:
 # --------------------------------------------------------------------------------------
 
 
-def test_embedded_block_and_notebook_match_the_current_configs() -> None:
-    """Regenerate and compare. A stale pilot budgets an experiment nobody will run."""
-    from scripts.build_pilot_sample import main as build
+def test_the_pilot_is_frozen() -> None:
+    """Gate: the W2 timing pilot is a FROZEN RECORD and must not be regenerated.
 
-    assert build(["--check"]) == 0, (
-        "the pilot's embedded data is stale. Run `uv run python scripts/build_pilot_sample.py`."
+    **This pilot has been RUN.** Its numbers are the record of that run, taken against prompt set
+    ``open_gen_v1.1``. On 19 Sep 2026 the prompt set moved to ``open_gen_v1.2`` -- five new frames
+    and a second carrier, forced by the P9 power analysis -- which changes every ``prompt_id`` and
+    the set size. Regenerating this block would therefore make the file describe a corpus the run
+    never saw, and would quietly invalidate the measurement it exists to record.
+
+    So the drift guard INVERTS at this point in the project's life. Before the run it asserted
+    "matches the live config"; after it, it asserts "has not changed at all". Re-running this
+    pilot means checking out the revision it was generated at, not regenerating it here.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(generated_block(PILOT_SCRIPT).encode("utf-8")).hexdigest()
+    assert digest == FROZEN_BLOCK_SHA256, (
+        "the pilot's embedded data changed. This pilot is a FROZEN RECORD of a completed run "
+        "against open_gen_v1.1; it must not be regenerated against the current prompt set. If "
+        "the change was deliberate, the measurement it records is no longer the measurement the "
+        "file describes."
     )
 
 
-def test_embedded_prompts_are_the_real_rendered_prompts(pilot: ModuleType) -> None:
-    """Not paraphrases: every embedded prompt must appear verbatim in the live prompt set."""
+def test_embedded_prompts_are_shaped_like_real_rendered_prompts(pilot: ModuleType) -> None:
+    """The prompts are real P4a renderings, checked structurally now that the set has moved on.
+
+    Before ``open_gen_v1.2`` this compared every embedded prompt against the LIVE prompt set. It
+    cannot any more: the set was regenerated with five new frames and a second carrier, so every
+    id changed. What survives, and is still worth asserting, is that these are renderings of the
+    real frames against real lattice cells rather than hand-typed paraphrases -- the id grammar
+    carries the template key, the cell id and the carrier, and all three must resolve.
+    """
     from margins.lattice import DEFAULT_LATTICE, DeclaredLattice, load_lattice_config
-    from margins.lattice.config import default_lattice_config_dir
-    from margins.prompts import (
-        DEFAULT_PROMPT_SET,
-        TemplateRenderer,
-        default_prompt_config_dir,
-        load_prompt_config,
-        load_template_files,
-        template_items,
-    )
-    from margins.prompts.config import TEMPLATE_DIRNAME
 
-    lattice = DeclaredLattice(
-        load_lattice_config(DEFAULT_LATTICE, config_dir=default_lattice_config_dir())
-    )
-    prompt_dir = default_prompt_config_dir()
-    config = load_prompt_config(DEFAULT_PROMPT_SET, config_dir=prompt_dir)
-    files = load_template_files(config, prompt_dir / TEMPLATE_DIRNAME)
-    renderer = TemplateRenderer(config, lattice)
-    rendered = renderer.render(template_items(config, files), lattice.cells())
-    live = {prompt.prompt_id: prompt.rendered_text for prompt in rendered}
+    lattice = DeclaredLattice(load_lattice_config(DEFAULT_LATTICE))
+    cell_ids = {cell.cell_id for cell in lattice.cells()}
 
+    assert pilot.PROMPT_SAMPLE, "the generated block is empty"
     for prompt_id, text in pilot.PROMPT_SAMPLE:
-        assert prompt_id in live, f"{prompt_id!r} is not in the current prompt set"
-        assert live[prompt_id] == text, f"{prompt_id!r} renders differently now"
+        template_key, cell_id, carrier, digest = prompt_id.split("::")
+        assert template_key, prompt_id
+        assert cell_id in cell_ids, f"{cell_id!r} is not a cell of the lattice"
+        assert carrier == "person", "the frozen run used the single shipped carrier"
+        assert len(digest) == 12, prompt_id
+        assert text.strip() == text and text, prompt_id
 
 
 def test_embedded_pins_match_the_model_configs(pilot: ModuleType) -> None:
@@ -508,3 +518,19 @@ def test_single_model_extrapolation_says_it_covers_one_model(
     )
     pilot.print_extrapolation([timing])
     assert "ONLY ONE MODEL WAS TIMED" in capsys.readouterr().out
+
+
+#: The generated block, frozen at the state the pilot was RUN against. See
+#: ``test_the_pilot_is_frozen``.
+FROZEN_BLOCK_SHA256 = "e90bf57230718964ac0eab333cfac9faf56a70dabc985515a5bb33b0a681892f"
+
+
+def generated_block(path: Path) -> str:
+    """The ``# --- BEGIN/END GENERATED ---`` region of a pilot script."""
+    import re
+
+    text = path.read_text(encoding="utf-8")
+    pattern = r"# --- BEGIN GENERATED ---\n.*?\n# --- END GENERATED ---"
+    match = re.search(pattern, text, re.DOTALL)
+    assert match is not None, f"{path} has no generated region"
+    return match.group(0)

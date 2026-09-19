@@ -97,6 +97,9 @@ DEFAULT_SCORING_NAME: Final[str] = "default_v1"
 #: Default metrics config name. A literal for the same import-cycle reason as the three above;
 #: ``tests/test_metrics_manifest.py`` pins it against ``margins.metrics.config.DEFAULT_METRICS``.
 DEFAULT_METRICS_NAME: Final[str] = "emergence_v1"
+#: Pinned to margins.stats.config.DEFAULT_STATS by test_stats_manifest.py. A literal here for
+#: the same import-cycle reason as the four above.
+DEFAULT_STATS_NAME: Final[str] = "confirmatory_v1"
 
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -180,6 +183,15 @@ class ExperimentConfig(BaseModel):
         default=DEFAULT_METRICS_NAME,
         min_length=1,
         description="Metrics config name; its sha256 is recorded in the manifest inputs.",
+    )
+
+    # Added at P9. `_name` suffix once more, and for the same reason every other one has it:
+    # `configs/stats/` is a Hydra config GROUP, and a key colliding with a group name cannot be
+    # overridden from the command line at all.
+    stats_name: str = Field(
+        default=DEFAULT_STATS_NAME,
+        min_length=1,
+        description="Stats config name; its sha256 is recorded in the manifest inputs.",
     )
 
     # Open decision #2 was settled at P5 (9 Sep 2026), but these stay optional and are populated
@@ -333,6 +345,72 @@ class MetricsRecord(BaseModel):
     n_family_disagreements: int = Field(ge=0)
 
 
+class StatsRecord(BaseModel):
+    """What the statistics stage actually did (P9): which family, which correction, what power.
+
+    The estimand-level facts are FIXED TEXT rather than settings, as :class:`MetricsRecord` does
+    it, because none of them is configurable and a reproducer should not have to read the code to
+    learn that the p-value is a cluster-robust Wald t on ``item clusters - 1`` degrees of freedom.
+
+    ``family_size`` is here as well as on every corrected estimate because a manifest should be
+    answerable on its own: "how many tests was this controlled over" is the first question a
+    reviewer asks about an FDR claim, and a gitignored Parquet is not an answer.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    stats_name: str
+    stats_version: str
+    stats_hash: str
+    benchmark: str
+
+    # Constants, not settings. Nothing in the config can change them.
+    correction_method: str = "benjamini_hochberg; statsmodels multipletests(method='fdr_bh')"
+    family_definition: str = (
+        "benchmark x model x axis_pair x term x harm_type, over the PRE-REGISTERED CONFIRMATORY "
+        "pairs only; exploratory pairs carry no p and no q"
+    )
+    p_source: str = (
+        "two-sided cluster-robust Wald t on estimate/se; df = item clusters - 1, from the "
+        "triangulated model-condition fit"
+    )
+    permutation_definition: str = (
+        "B3: whole items exchanged within (template frame, stratum-axis value) blocks; "
+        "p = (1 + count) / (B + 1); reported beside the GLM p and never in the FDR family"
+    )
+
+    alpha: float = Field(gt=0.0, lt=1.0)
+    method: str
+    prds_justification: str
+    family_terms: str
+    family_size: int = Field(ge=0)
+    n_present: int = Field(ge=0)
+    n_excused_not_estimable: int = Field(ge=0)
+
+    n_significant_pre: int = Field(ge=0)
+    n_significant_post: int = Field(ge=0)
+    n_exploratory_passthrough: int = Field(ge=0)
+
+    permutation_scheme: str
+    n_permutations: int = Field(ge=0)
+    permutation_seed: int = Field(ge=0, le=MAX_SEED)
+
+    descriptive_only_ratio: float = Field(gt=0.0)
+    descriptive_only_harm_types: tuple[str, ...] = ()
+    n_drift_disagreements: int = Field(
+        default=0, description="Where P9's enforced decision differs from P7's candidate flag."
+    )
+
+    icc_rho: tuple[float, ...] = Field(
+        default=(), description="The rho strip the power analysis ran at. MEASURED, not assumed."
+    )
+    effect_size: float = Field(gt=0.0, description="The pre-registered minimum detectable effect.")
+    target_power: float = Field(gt=0.0, lt=1.0)
+    min_cell_n: int = Field(ge=1, description="The threshold this run judged `powered` against.")
+    n_claimable: int = Field(ge=0)
+    n_refused: int = Field(ge=0)
+
+
 class RunManifest(BaseModel):
     """Everything needed to reconstruct a run, including what could not be determined.
 
@@ -376,6 +454,13 @@ class RunManifest(BaseModel):
         description=(
             "What the metric stage actually did: which estimator, under which thresholds. None "
             "for runs that fit nothing."
+        ),
+    )
+    stats: StatsRecord | None = Field(
+        default=None,
+        description=(
+            "What the statistics stage actually did: which family, which correction, what power. "
+            "None for runs that declare no significance, which is most of them."
         ),
     )
 
@@ -500,6 +585,7 @@ def write_run_manifest(
     inference: InferenceRecord | None = None,
     scoring: ScoringRecord | None = None,
     metrics: MetricsRecord | None = None,
+    stats: StatsRecord | None = None,
 ) -> RunManifest:
     """Write ``<results_dir>/<manifest_subdir>/<run_id>.json`` and return what was written.
 
@@ -516,6 +602,7 @@ def write_run_manifest(
         inference: What the inference stage actually did. None for runs that load no model.
         scoring: What the scoring stage actually did. None for runs that score nothing.
         metrics: What the metric stage actually did. None for runs that fit nothing.
+        stats: What the statistics stage actually did. None for runs that declare nothing.
 
     Returns:
         The manifest **re-read and re-validated from the file on disk**, so the returned object
@@ -559,6 +646,7 @@ def write_run_manifest(
         inference=inference,
         scoring=scoring,
         metrics=metrics,
+        stats=stats,
     )
 
     destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{resolved_run_id}.json"

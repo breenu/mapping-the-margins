@@ -221,17 +221,26 @@ def shipped() -> PromptSetConfig:
     return load_prompt_config(DEFAULT_PROMPT_SET)
 
 
-def test_shipped_config_declares_one_axis_neutral_carrier(shipped: PromptSetConfig) -> None:
-    """The confirmatory set keeps the carrier set small and free of undeclared axes."""
-    assert len(shipped.carriers) == 1
-    assert shipped.carriers[0].noun == "person"
-    assert shipped.carriers[0].axis_neutral is True
+def test_shipped_config_declares_only_axis_neutral_carriers(shipped: PromptSetConfig) -> None:
+    """Two carriers at v1.2, both axis-neutral, and no undeclared axis among them.
+
+    The count grew from one to two on 19 Sep 2026 because a carrier multiplies PROMPTS PER CELL
+    exactly as a frame does, and prompts per cell is what bounds precision at the measured
+    intraclass correlation. What must not grow is the number of axes smuggled in: every carrier
+    here is `axis_neutral`, and the schema refuses a non-neutral one that does not name the axis
+    it introduces.
+    """
+    assert [carrier.noun for carrier in shipped.carriers] == ["person", "individual"]
+    assert all(carrier.axis_neutral for carrier in shipped.carriers)
+    assert all(carrier.note.strip() for carrier in shipped.carriers)
     assert shipped.declared_carrier_axes == ()
+    assert len(shipped.carriers) <= MAX_CARRIERS
 
 
 def test_shipped_templates_all_load_and_carry_a_note(shipped: PromptSetConfig) -> None:
+    """14 frames at v1.2, up from 9. See the config's version note for why."""
     files = load_template_files(shipped)
-    assert len(files) == len(shipped.templates) == 9
+    assert len(files) == len(shipped.templates) == 14
     for file in files:
         assert file.text and "\n" not in file.text
         assert file.spec.note.strip()

@@ -58,6 +58,7 @@ __all__ = [
     "fit_report",
     "fit_terms",
     "not_estimable_report",
+    "triangulate",
 ]
 
 
@@ -153,7 +154,7 @@ class EmergenceMetric:
                 for s in model_rows
                 if (s.benchmark, s.model_id, s.harm_type) == (benchmark, model_id, harm_type)
             ]
-            scorer_ids, observations = _triangulate(rows)
+            scorer_ids, observations = triangulate(rows)
             self._cell_stats(result, observations, cells, benchmark, model_id, harm_type, rng)
             for design in designs:
                 self._fit_series(
@@ -285,7 +286,7 @@ class EmergenceMetric:
 # --------------------------------------------------------------------------------------
 
 
-def _triangulate(rows: Sequence[ItemScore]) -> tuple[tuple[str, ...], list[Observation]]:
+def triangulate(rows: Sequence[ItemScore]) -> tuple[tuple[str, ...], list[Observation]]:
     """Mean of the scorers' standardized scores per response; refuse an incomplete response."""
     scorer_ids = tuple(sorted({s.scorer_id for s in rows}))
     by_response: dict[str, dict[str, ItemScore]] = {}

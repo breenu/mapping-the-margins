@@ -26,6 +26,13 @@ multirun/
 # Hydra working dirs
 .hydra/
 
+# The Kaggle pilots download their output to the REPO ROOT, outside data/, so the data/ rule
+# above does not catch it. `rho_responses.jsonl` is a raw response dump (2.2 MB, 1,728
+# generations) and raw dumps never enter git -- they ship as a Zenodo artifact at release.
+# Its canonical home is data/responses/; it is ignored here wherever it lands.
+rho_responses.jsonl
+pilot_results.json
+
 # Model weights and raw dumps -- belt and braces alongside check-added-large-files.
 *.safetensors
 *.gguf

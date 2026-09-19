@@ -80,7 +80,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"\nmin_cell_n: {config.power.min_cell_n}  "
-        "(PRE-REGISTERED PLACEHOLDER -- TODO(P9): derive from the real power analysis)"
+        "(DERIVED 19 Sep 2026 by the P9 power simulation at the MEASURED intraclass "
+        "correlation; no longer a placeholder -- see docs/power_and_precision.md)"
     )
     print(f"\nwrote {inventory}")
     print(f"wrote {provenance}")

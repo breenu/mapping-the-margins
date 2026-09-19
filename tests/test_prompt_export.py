@@ -162,9 +162,15 @@ def test_phrase_audit_covers_every_order_2_descriptor_in_a_sentence(
     assert len(order_2) == 92
     for record in order_2:
         assert f"| {record.descriptor} |" in text, f"{record.descriptor} missing from phrase audit"
-        assert f"about a {record.descriptor} person." in text or (
-            f"about an {record.descriptor} person." in text
-        ), f"{record.descriptor} not shown inside a rendered sentence"
+        # Either declared carrier is acceptable. The audit shows ONE rendered sentence per
+        # descriptor and which carrier it lands on is incidental; what it exists to expose is
+        # the article and the composed phrase, both carrier-independent.
+        shown = any(
+            f"about a {record.descriptor} {carrier.noun}." in text
+            or f"about an {record.descriptor} {carrier.noun}." in text
+            for carrier in config.carriers
+        )
+        assert shown, f"{record.descriptor} not shown inside a rendered sentence"
 
 
 def test_phrase_audit_states_that_descriptors_are_never_the_lever(

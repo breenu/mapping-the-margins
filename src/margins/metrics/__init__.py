@@ -57,7 +57,7 @@ from margins.metrics.estimator import (
 )
 from margins.metrics.export import DEFAULT_METRICS_DIR, export_metrics, read_effects
 from margins.metrics.manifest import metrics_inputs, metrics_record
-from margins.metrics.metric import EmergenceMetric, EmergenceResult
+from margins.metrics.metric import EmergenceMetric, EmergenceResult, triangulate
 from margins.metrics.records import (
     DriftComparison,
     FamilyAgreement,
@@ -104,4 +104,5 @@ __all__ = [
     "pair_design",
     "pair_designs",
     "read_effects",
+    "triangulate",
 ]

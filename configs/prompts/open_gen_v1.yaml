@@ -16,7 +16,15 @@
 #                             P4a phrase review (finding `marked-register-with-neutral-carrier`).
 #                             Also re-rendered against lattice confirmatory_v1.1, whose
 #                             compose_rank reordering changes cell_ids for two pairs.
-template_version: "open_gen_v1.1@2026-09-08"
+#   open_gen_v1.2@2026-09-19  FIVE new frames + a SECOND carrier, both forced by the P9 power
+#                             analysis. The measured intraclass correlation (regard 0.35,
+#                             CI 0.29-0.43; toxicity 0.18, CI 0.13-0.23) means precision floors
+#                             at rho/|prompts per cell|, so the binding resource is PROMPTS PER
+#                             CELL, not renderings. 9 items/cell cannot reach 80% power on a
+#                             0.5 SD interaction at any sampling budget; 27 can.
+#                             13 carrier-using frames x 2 carriers + 1 carrier-free = 27.
+#                             Frames and carrier reviewed and approved 19 Sep 2026.
+template_version: "open_gen_v1.2@2026-09-19"
 
 license: "MIT"
 
@@ -137,6 +145,60 @@ templates:
       the two identities. That difference is the point of having it, and it is why R1's
       prompt-paraphrase analysis should report this frame separately.
 
+  # ---------------------------------------------------------------------------------------
+  # ADDED AT v1.2 (19 Sep 2026). Five frames, to raise prompts per cell from 9 to 27.
+  #
+  # These are not breadth for its own sake. The P9 power analysis measured the intraclass
+  # correlation of harm scores within a prompt and found precision floors at rho / |prompts per
+  # cell|: at the measured rho, NO sampling budget reaches 80% power on a 0.5 SD interaction with
+  # 9 prompts per cell. Prompts are the binding resource, and these five are how the design gets
+  # them. Each was chosen to add a signal none of the nine already elicits, rendered against the
+  # hard cells (Black, Deaf, the marked gender register, both article branches) and reviewed for
+  # neutrality and leakage before being declared.
+  # ---------------------------------------------------------------------------------------
+
+  - id: conversation
+    file: conversation.jinja
+    note: >-
+      Dialogue generation. The only frame eliciting turn-taking: assumptions surface in who
+      speaks how and who defers to whom, which description-shaped frames cannot show.
+
+  - id: first_person
+    file: first_person.jinja
+    note: >-
+      Perspective-taking. The model speaks AS the person rather than about them, which is where
+      register and dialect stereotyping lives and which no other frame reaches. KNOWN RISK,
+      accepted deliberately: it is the highest-signal probe here, and therefore also the frame
+      most likely to produce output a scorer reads as harmful for reasons of register rather
+      than of harm. The section 9 drift control and R1's per-frame sensitivity are the two
+      detectors on that; this is the first frame to inspect if a result looks anomalous.
+
+  - id: questions
+    file: questions.jinja
+    note: >-
+      Interrogative. Elicits what the model treats as unknown or noteworthy about a person,
+      which is a different signal from what it asserts. Uses the article/descriptor/carrier
+      parts directly. KNOWN RISK, on the record: this frame is materially LONGER than the other
+      thirteen, and generation length correlates with scored harm for the lexicon scorers. The
+      length is constant across cells, so it can bias only a main effect -- which is B1's
+      descriptive baseline and not an estimand -- and cannot bias the interaction.
+
+  - id: scene
+    file: scene.jinja
+    note: >-
+      Scene-setting. Leaves the setting unspecified and lets the model choose it, which surfaces
+      environment and context assumptions that a person-focused frame keeps implicit.
+
+  - id: advice_given
+    file: advice_given.jinja
+    note: >-
+      Inverts `advice`, and the NEAR-PAIR IS THE POINT -- do not substitute it for a more
+      distinct frame. `advice` carries a documented caveat that asking for advice can
+      presuppose something needs solving; this frame positions the person as the SOURCE of
+      advice rather than its recipient. Because the two differ in that presupposition and in
+      almost nothing else, R1's prompt-paraphrase analysis can estimate the presupposition's
+      contribution directly instead of merely noting it as a caveat.
+
 # CARRIER NOUN — a CONSTRUCT CHOICE, and the one P3 deferred to here on purpose.
 #
 # P3's compose_descriptor emits a bare modifier phrase ("working-class Black", "older blind") and
@@ -166,6 +228,23 @@ templates:
 # compose_rank reordering puts gender LAST, i.e. immediately before the carrier noun, so the
 # register artifact is now adjacent in every gender cell rather than only some.
 # See `marked-register-with-neutral-carrier` in data/prompts/phrase_audit.md.
+#
+# SECOND CARRIER ADDED AT v1.2 (19 Sep 2026), and the reason is power, not breadth. A carrier
+# multiplies prompts per cell exactly as a frame does, and prompts per cell is what bounds
+# precision (see the version note above). Two carriers over thirteen carrier-using frames, plus
+# the carrier-free frame emitted ONCE, gives 27 prompts per cell.
+#
+# `individual` was chosen after rendering every candidate against real cells and rejecting:
+#   * `adult`  -- collides with the AGE axis outright ("a young nondisabled adult")
+#   * `human`  -- "a nondisabled female human" reads as othering
+#   * `figure` -- implies fiction or prominence
+#   * `someone`/`one` -- ungrammatical after the article rule
+#
+# NOTE ON THE CARRIER-FREE FRAME. `someone_who_is` renders IDENTICALLY under every carrier, so
+# the renderer emits it once (PreparedTemplate.uses_carrier). Without that, two carriers would
+# produce two byte-identical prompts under distinct ids, and the estimator would count one prompt
+# as two ITEM CLUSTERS -- shrinking every cluster-robust standard error in the anti-conservative
+# direction. The fix landed with this version and is asserted by test_template_renderer.py.
 carriers:
   - noun: person
     axis_neutral: true
@@ -173,6 +252,18 @@ carriers:
       Least axis-loaded carrier available. Chosen over man/woman (gender), kid/elder (age) and
       every occupational noun (class/gender/race stereotype content), each of which would add an
       undeclared second axis of variation to every cell.
+
+  - noun: individual
+    axis_neutral: true
+    note: >-
+      Second carrier, added at v1.2 to raise prompts per cell. Carries no gender, age, class,
+      race or ability signal, collides with no lattice term, and takes the vowel-letter article
+      rule cleanly. DOCUMENTED RESIDUAL RISK, accepted: its register is more institutional than
+      `person` -- the register of case notes and policy documents. A register is constant across
+      cells and so cannot manufacture a MAIN effect, but by the same argument the lattice makes
+      about adjective order, a register that sits differently against different descriptors can
+      in principle contribute to an INTERACTION, which is the estimand. The section 9 scorer
+      identity-drift control is what monitors it, and R1 can compare the two carriers directly.
 
 # The article is a TEMPLATE-FRAME concern, never a descriptor edit: "a older blind person" is
 # broken English, and a model reacts to broken English. The default rule is the vowel-LETTER rule,

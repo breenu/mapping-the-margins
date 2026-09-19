@@ -316,6 +316,24 @@ class PreparedTemplate:
         slots = self.item.payload.get("slots", ())
         return tuple(str(slot) for slot in slots)
 
+    @property
+    def uses_carrier(self) -> bool:
+        """Whether this frame's rendered text depends on which carrier noun is supplied.
+
+        ``identity`` counts, because it composes ``article + descriptor + carrier``.
+
+        **Why this exists (added with the second carrier).** A carrier-free frame renders
+        IDENTICALLY for every carrier -- ``someone_who_is`` produces "someone who is wealthy and
+        white" whatever noun is declared. Rendering it once per carrier would emit byte-identical
+        texts under distinct ``prompt_id``s, and the estimator would then treat them as distinct
+        ITEM CLUSTERS. They are not: they are one prompt counted several times, and a
+        cluster-robust standard error computed over them is too small, in the anti-conservative
+        direction, by exactly the duplication factor. The renderer therefore emits a carrier-free
+        frame once, and the prompt count per cell is
+        ``|carrier-using frames| * |carriers| + |carrier-free frames|``.
+        """
+        return CARRIER_VARIABLE in self.slots or IDENTITY_VARIABLE in self.slots
+
 
 class TemplateRenderer:
     """Injects lattice cells into neutral template frames (the ``PromptGenerator`` Protocol).
@@ -471,7 +489,12 @@ class TemplateRenderer:
                 conjoined = self._conjoined_descriptor_for(cell)
                 article = config.article_for(descriptor)
                 expected = self._expected_terms(cell)
-                for carrier in config.carriers:
+                # A carrier-free frame renders identically for every carrier, so it is emitted
+                # ONCE. See PreparedTemplate.uses_carrier: duplicating it would hand the
+                # estimator identical texts as distinct item clusters and shrink every
+                # cluster-robust standard error.
+                carriers = config.carriers if template.uses_carrier else config.carriers[:1]
+                for carrier in carriers:
                     rendered = normalize_template_text(
                         template.template.render(
                             {

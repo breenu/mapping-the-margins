@@ -181,14 +181,28 @@ def test_prompt_ids_are_stable_and_order_independent(
     assert all(by_id[p.prompt_id] == p.rendered_text for p in forward)
 
 
-def test_prompt_ids_are_unique_and_readable(shipped_prompts: list[Prompt]) -> None:
+def test_prompt_ids_are_unique_and_readable(
+    shipped_prompts: list[Prompt], shipped_config: PromptSetConfig
+) -> None:
+    carriers = {carrier.noun for carrier in shipped_config.carriers}
     ids = [prompt.prompt_id for prompt in shipped_prompts]
     assert len(set(ids)) == len(ids)
     for prompt in shipped_prompts:
         template, cell_id, carrier, digest = prompt.prompt_id.split("::")
-        assert template and carrier == "person"
+        assert template and carrier in carriers
         assert cell_id == prompt.cell_id
         assert len(digest) == 12
+
+
+def test_no_two_prompts_share_rendered_text(shipped_prompts: list[Prompt]) -> None:
+    """With two carriers, the carrier-free frame must not produce duplicates.
+
+    A duplicate text under two ids would be counted as two independent ITEM CLUSTERS by the
+    emergence estimator, shrinking every cluster-robust standard error. The renderer emits a
+    carrier-free frame once for exactly this reason.
+    """
+    texts = [prompt.rendered_text for prompt in shipped_prompts]
+    assert len(set(texts)) == len(texts)
 
 
 def test_prompt_id_changes_when_the_rendered_text_changes(
@@ -226,10 +240,16 @@ def test_prompt_count_is_templates_times_cells_times_carriers(
     shipped_config: PromptSetConfig,
     shipped_lattice: DeclaredLattice,
 ) -> None:
-    expected = (
-        len(shipped_config.templates) * len(shipped_lattice.cells()) * len(shipped_config.carriers)
-    )
-    assert len(shipped_prompts) == expected == 990
+    # A carrier-free frame is emitted ONCE, so the count is not a flat product. This is the
+    # arithmetic the P9 power analysis depends on: 13 carrier-using frames x 2 carriers + 1
+    # carrier-free frame = 27 prompts per cell.
+    renderer = TemplateRenderer(shipped_config, shipped_lattice)
+    prepared = renderer.prepare(template_items(shipped_config, load_template_files(shipped_config)))
+    using = sum(1 for template in prepared if template.uses_carrier)
+    free = sum(1 for template in prepared if not template.uses_carrier)
+    per_cell = using * len(shipped_config.carriers) + free
+    assert per_cell == 27
+    assert len(shipped_prompts) == per_cell * len(shipped_lattice.cells()) == 2970
 
 
 def test_every_cell_is_reached_including_non_gender_intersections(
@@ -377,3 +397,65 @@ def test_rendered_text_is_single_line_and_normalized(shipped_prompts: list[Promp
         assert "\n" not in prompt.rendered_text
         assert prompt.rendered_text == prompt.rendered_text.strip()
         assert "  " not in prompt.rendered_text
+
+
+# --------------------------------------------------------------------------------------
+# Carrier-free frames are emitted ONCE (added with the second carrier, P9)
+# --------------------------------------------------------------------------------------
+
+
+def test_a_carrier_free_frame_is_emitted_once_per_cell(
+    shipped_lattice: DeclaredLattice, shipped_config: PromptSetConfig
+) -> None:
+    """Duplicating it would hand the estimator identical texts as distinct ITEM CLUSTERS.
+
+    That is not a cosmetic duplicate. The emergence estimator clusters by prompt and the cluster
+    bootstrap resamples whole prompts; N copies of one prompt look like N independent clusters and
+    shrink every standard error in the anti-conservative direction. This is the arithmetic the
+    P9 power analysis depends on, so it is asserted rather than assumed.
+    """
+    from margins.prompts.config import CarrierSpec
+
+    template_files = load_template_files(shipped_config)
+    two = shipped_config.model_copy(
+        update={
+            "carriers": (
+                CarrierSpec(noun="person", axis_neutral=True, note="shipped carrier"),
+                CarrierSpec(noun="individual", axis_neutral=True, note="second carrier"),
+            )
+        }
+    )
+    renderer = TemplateRenderer(two, shipped_lattice)
+    items = template_items(two, template_files)
+    prepared = renderer.prepare(items)
+    carrier_free = [t for t in prepared if not t.uses_carrier]
+    carrier_using = [t for t in prepared if t.uses_carrier]
+    assert carrier_free, "the fixture needs at least one carrier-free frame to exercise this"
+
+    cells = shipped_lattice.cells()[:3]
+    prompts = renderer.render(items, cells)
+
+    # The arithmetic the power analysis assumes: items per cell.
+    expected_per_cell = len(carrier_using) * 2 + len(carrier_free)
+    assert len(prompts) == expected_per_cell * len(cells)
+
+    # And no two prompts share their rendered text within a cell.
+    for cell in cells:
+        texts = [p.rendered_text for p in prompts if p.cell_id == cell.cell_id]
+        assert len(texts) == len(set(texts)), "identical texts are not independent clusters"
+
+
+def test_uses_carrier_reflects_the_frame_not_a_declaration(
+    shipped_lattice: DeclaredLattice, shipped_config: PromptSetConfig
+) -> None:
+    template_files = load_template_files(shipped_config)
+    renderer = TemplateRenderer(shipped_config, shipped_lattice)
+    for prepared in renderer.prepare(template_items(shipped_config, template_files)):
+        source = str(prepared.item.payload["template_text"])
+        references = "carrier" in source or "identity" in source
+        assert prepared.uses_carrier == (
+            "carrier" in prepared.slots or "identity" in prepared.slots
+        )
+        assert prepared.uses_carrier == references, (
+            f"{prepared.key}: uses_carrier must follow the FRAME, not a declaration"
+        )

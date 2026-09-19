@@ -51,6 +51,13 @@ REQUIRED_FIELDS = {
     # artifact. None for runs that score nothing.
     "scoring",
     "metrics",
+    # CONTRACT CHANGE 19 Sep 2026 (P9), same shape again. An EffectEstimate carries a q but not
+    # the family it was corrected over, the alpha, the p-value's degrees of freedom, or the
+    # threshold `powered` was judged against -- and "how many tests was this controlled over" is
+    # the first question a reviewer asks of an FDR claim. This block answers it from the
+    # committed manifest rather than from a gitignored Parquet. None for runs that declare no
+    # significance, which is most of them.
+    "stats",
 }
 
 FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)

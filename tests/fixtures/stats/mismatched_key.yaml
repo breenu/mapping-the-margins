@@ -1,0 +1,35 @@
+# The filename says mismatched_key; the key says something else. Must be refused at load, or a
+# manifest recording a config NAME would resolve to a file that did not run.
+
+key: not_mismatched_key
+
+stats_version: "fixture@2026-09-19"
+
+description: |
+  Deliberately mismatched key.
+
+fdr:
+  alpha: 0.05
+  method: fdr_bh
+  prds_justification: "fixture: stated so the loader reaches the key check"
+
+permutation:
+  scheme: within_stratum
+  stratum_axis: a
+  n_permutations: 199
+  seed: 1
+
+power:
+  frames_per_cell: 3
+  frames_grid: [3]
+  seeds_grid: [1, 2]
+  icc_rho: [0.2]
+  effect_size: 0.3
+  patterns: [concentrated]
+  target_power: 0.8
+  n_simulations: 100
+  pair: ["alpha", "beta"]
+  seed: 1
+
+drift:
+  descriptive_only_ratio: 0.5
