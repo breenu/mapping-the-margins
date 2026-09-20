@@ -491,7 +491,10 @@ uv run python scripts/build_pilot_sample.py               # regenerate the Kaggl
 
 # P6 scoring. Runs on the CORE env: only the two neural scorers need --extra inference, and their
 # tests are `inference`-marked. Both pin verifiers STOP rather than substituting.
-uv run python scripts/fetch_lexicons.py                   # --verify; --write re-pins + prints YAML
+uv run python scripts/fetch_lexicons.py                   # --verify (default): check disk vs the pin
+uv run python scripts/fetch_lexicons.py --fetch-pinned    # download AT the recorded revision. What
+                                                          #   CI runs; refuses on a digest mismatch.
+uv run python scripts/fetch_lexicons.py --write           # RE-PINS to upstream HEAD. A human action.
 uv run python scripts/pin_scorers.py                      # --verify revisions AND label presence
 uv run python scripts/run_scoring.py --responses data/responses/<model>/<run_id>.jsonl
 uv run python scripts/build_calibration_sample.py --harm-type toxicity --responses <file>
