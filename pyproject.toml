@@ -110,6 +110,15 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PTH", "RUF"]
 # embeds the timing pilot's host handling VERBATIM -- reformatting a verbatim copy would defeat the
 # byte-identity check that keeps the two from diverging.
 "scripts/kaggle_rho_pilot.py" = ["E501"]
+# P10 figures. Greek letters and typographic punctuation are the NOTATION, not a typo: the
+# estimand is gamma, the intraclass correlation is rho, and a publication figure writes
+# "class × race" with a multiplication sign and a range with an en dash. RUF001/RUF002 exist to
+# catch a homoglyph pasted into an identifier, which is a real hazard; here the characters are
+# deliberate and appear only inside axis labels, titles and the prose that explains them.
+# Substituting ASCII would make the figures wrong in the one place a reader actually looks.
+"src/margins/viz/*" = ["RUF001", "RUF002"]
+"tests/test_viz_*.py" = ["RUF001", "RUF002"]
+"tests/test_report_tables.py" = ["RUF002"]
 
 [tool.mypy]
 python_version = "3.11"

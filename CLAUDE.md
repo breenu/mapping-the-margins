@@ -8,7 +8,7 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4a ✅ · P4b ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P8 ✅ · P9 ✅ complete.** P0: environment,
+**P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4a ✅ · P4b ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P8 ✅ · P9 ✅ · P10 ✅ complete.** P0: environment,
 `margins.repro`, `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) +
 `margins.interfaces` (Protocols), walking skeleton, schema field-freeze test. P3:
 `margins.lattice`. P4a: `margins.prompts` — `TemplateRenderer`, the leakage guard, the phrase
@@ -41,7 +41,12 @@ the confirmatory cells via the **unchanged** `TemplateRenderer`. No schema chang
 or metric path. See "P8 as built". **It also exposed a real P9 defect that would have crashed the
 first full run** — see the ⚠ box below.
 
-**NEXT TASK: P10 — visualization + reporting.** Then P11 (experiments), P12, P13.
+**P10 ✅ visualization + reporting — DONE 21 Sep 2026.** `margins.viz` + `margins.report`, seven
+figures, one command, every drawn number audited against a committed artifact. See "P10 as built".
+
+**NEXT TASK: P11 — experiments.** Then P12 (paper), P13 (release). **Before any full run, honour
+the two things decided 21 Sep 2026 below** — the multi-rendering smoke run that exercises the P9
+correction path, and the red-team arm staying `powered=False`.
 
 ### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
@@ -121,6 +126,89 @@ on real P7 output. P8's integration test is the first thing that fed it any.
 Pinned by `tests/test_fdr_correction.py::test_a_non_member_term_of_a_confirmatory_pair_passes_
 through_descriptively`. **The lesson is the §11 golden rule restated: run the real artifact through
 the real stage.** Both P6's Krippendorff blow-up and this were found that way, not by a test.
+
+### P10 as built (the FIGURES + TABLES — for P11/P12 to consume)
+
+- **NO schema change, no contract change, no new dependency.** `matplotlib`/`seaborn` were already
+  core. P10 reads committed artifacts and writes figures and tables; it computes no estimate and
+  sets nothing.
+- **One command: `uv run python scripts/make_figures.py`** → seven figures as vector **PDF + SVG**
+  in `figures/` (committed; `figures/*.png` is gitignored and `save_figure` REFUSES a raster
+  format, so a rasterised headline figure cannot enter the repo). CI runs the command too.
+- **⚠ THE TRACEABILITY MECHANISM, and it is not a convention.** A figure obtains numbers only
+  through `margins.report.source.NumberSource`, which hands out `Traced` values and keeps a
+  **ledger**. `margins.viz.trace.audit_figure` then walks the RENDERED ARTISTS — line data, bar
+  extents, collection segments, heatmap arrays, titles, axis labels and annotations — and reports
+  every number the ledger does not account for. `build_figure` runs the audit *inside* the build
+  and raises, so an untraceable figure is never written. **The audit is proven able to fail**
+  (`tests/test_viz_traceability.py`): a hand-typed coordinate, a hard-coded reference line and an
+  annotation that drifted from its table are each caught. Exemptions are declared per figure as
+  `structural={value: "why this is not a measurement"}` — a mapping, because an exemption that
+  does not say why is how an audit becomes a formality.
+  - A number computed from traced inputs (a row count, a column max) goes through
+    `NumberSource.derived(..., how=...)`, which lands the derivation in the ledger key.
+  - `NumberSource.number()` RAISES on a missing or non-numeric key; there is no fallback.
+- **⚠ THE CLAIM BINDING: a figure cannot print a star the gate would refuse.** `margins.viz.claims`
+  runs the REAL `ClaimGate` at figure time and **raises if its verdict disagrees with the one P9
+  recorded** — believing the artifact would be circular. The trap is live in the shipped fixture:
+  the downgraded harm type keeps q values below alpha (it WAS corrected; only the claim is
+  refused) and gets no star. `test_the_emergence_figure_stars_only_permitted_effects` counts the
+  markers actually drawn and holds them to what the gate permits.
+- **⚠ THE AST SCAN CAUGHT A REAL P10 BUG.** `effect_from_row` originally passed
+  `family_size=1, correction="fdr_bh"` so the record would validate — the figure layer inventing
+  significance metadata, exactly the invariant-3 violation
+  `test_only_the_correct_module_sets_q_family_size_or_correction` exists to catch. **Fix:**
+  `family_size` and `correction` are now COLUMNS of `emergence_effects`, and the figure layer
+  *deserializes* what P9 wrote rather than authoring it. Third time a P9-era guard has paid off.
+- **Emergence-is-not-level is enforced, not captioned.** No `CellStat` mean reaches figure 1; the
+  heatmap is a γ table and `test_the_gamma_grid_the_heatmap_draws_sums_to_zero` checks it sums to
+  zero along every row and column, which a table of levels never does. The single-axis table
+  deliberately excludes order-2 cells for the same reason.
+- **Greyscale legibility is structural, and the palette docstring says so with numbers.** Okabe-Ito
+  reordered; worst pair ΔE 26.4 normal / 20.7 protan / 18.1 deutan / **16.2 tritan** (JND ≈ 2.3),
+  recomputed by the tests via Machado 2009 matrices + CIE76, no new dependency. But six hues
+  separated in HUE are not separated in LUMINANCE — the closest two are **0.011** apart — so the
+  real rule is `Encoding`: every series carries a marker, hatch or linestyle, colour-only
+  construction RAISES, and a test asserts the non-colour channel alone identifies every series in
+  every figure. `test_the_palette_alone_is_not_greyscale_sufficient` asserts the honest half.
+- **Byte-deterministic within a platform**, tested: `svg.hashsalt` pinned, `svg.fonttype="none"`,
+  savefig metadata drops `CreationDate`/`Date`, and **SVG is rewritten with LF** because
+  matplotlib opens it in text mode and a Windows run would otherwise dirty the worktree every
+  time. **Cross-OS byte identity is NOT claimed** (PDF font subsets), so CI regenerates but does
+  not diff — the same scoping invariant 5 already uses for bit-identity.
+- **Seaborn is deliberately UNUSED for drawing**, though it stays a declared dep: it ships no type
+  information (`mypy --strict` covers `src`) and its themes shift between minor versions, which is
+  the invisible drift the determinism test exists to catch. The rcParams are the theme, written out.
+- **`results/` gained two directories.** `results/tables/` holds the real committed result tables
+  (CSV **+** LaTeX, booktabs, byte-deterministic, declared column-by-column by a `TableSpec`);
+  `results/fixtures/` holds the synthetic stand-ins. **Every table carries a `data_status` column**
+  — machine-readable, in the row, not a filename convention — and every figure drawn from fixture
+  rows is banner-stamped on its face. `scripts/make_figures.py` prefers `results/tables/` when it
+  exists and says which it used.
+- **FIXTURE DATA, stated plainly: six of seven figures currently show synthetic rows.** Only
+  `fig3_field_underpowered` is real (measured rho + the power simulation, read by key). Everything
+  *structural* in the fixtures is real — the axis pairs and their levels, the
+  confirmatory/exploratory split, the scorer roster, the model pins, the frame names, the
+  pre-registered thresholds, and CrowS's measured order-2 emptiness — only the estimates are from
+  a seeded RNG (blake2b-keyed, NOT `hash()`, which is salted per process). **No fixture value is
+  registered in `results/paper_numbers.json`,** asserted by a test.
+- **`results/paper_numbers.json` gained 9 keys, all real:** `crows.{rows_read,kept,excluded,
+  order_1_items,order_2_items,no_cell_items,order_2_cells_populated}` from a re-run of
+  `scripts/build_crows_items.py` (which now registers them), plus `fdr.alpha` and
+  `drift.descriptive_only_ratio` read off the stats config by `scripts/emit_power_numbers.py`.
+- **Figure 4 REFUSES to draw an extractive interaction.** If a `crows_pairs` row ever arrives
+  claiming `estimable=true`, `build` raises rather than plotting it: the slot carries the
+  estimator's machine-readable reason, because a zero with an interval would report a null result
+  about the model where the truth is that the instrument cannot express the effect.
+- **Figure 5 REFUSES to promote the red-team arm.** A red-team row carrying a q or a claimable
+  flag raises. The arm is descriptive by the 21 Sep 2026 budget decision, and the figure says that
+  is a scope choice and not evidence the effects are small.
+- **`scripts/build_result_tables.py` exists and is TESTED against real record types** even though
+  no real run exists: `margins.report.build` is pure, and the tests feed it genuine
+  `EffectEstimate`/`FitTerm`/`SignificanceClaim`/`CellStat` objects. An estimate with no matching
+  triangulated fit term RAISES — its shape would be missing and it would vanish from the heatmap.
+- **Artifacts:** `figures/*.{pdf,svg}` + `figures/README.md`, `results/fixtures/*.{csv,tex}` +
+  a README, and (after P11) `results/tables/*.{csv,tex}`.
 
 ### P8 as built (the RED-TEAM vertical — for P10/P11 to consume)
 
@@ -674,7 +762,7 @@ Phase IDs are **stable labels, not a sequence**; they deliberately run out of nu
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
 > P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → P9 ✅ → P2 ✅ (CrowS-Pairs) →
-> P4b ✅ (ExtractiveRenderer) → **P8** → P10 → P11 → P12 → P13
+> P4b ✅ (ExtractiveRenderer) → P8 ✅ → P10 ✅ → **P11** → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
 estimand. Generation-first means a slip costs **breadth** (RQ1's second paradigm — already cuttable
@@ -796,6 +884,15 @@ uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json
 # rho was MEASURED 19 Sep 2026 (regard 0.35, toxicity 0.18). Do NOT re-run these two: both
 # pilots are frozen records and their drift guards are now pinned-digest tests.
 #   scripts/kaggle_rho_pilot.py (Kaggle, GPU)   scripts/measure_rho.py (local, CPU)
+
+# P10 figures + tables. Core env, no torch. Every drawn number is audited against a committed
+# artifact as the figure is built, so an untraceable figure is never written.
+uv run python scripts/make_figures.py            # -> figures/*.pdf + *.svg, ONE command
+uv run python scripts/make_figures.py --only essential   # the five that carry a headline claim
+uv run python scripts/build_fixture_results.py   # -> results/fixtures/  (synthetic, pre-P11)
+uv run python scripts/build_result_tables.py     # -> results/tables/    (needs a real P7+P9 run)
+# make_figures.py prefers results/tables/ when it exists and falls back to results/fixtures/,
+# printing which it used. Figures drawn from fixtures are banner-stamped on their face.
 
 # Quality gates — all must pass before crossing a phase boundary.
 uv run pytest -q

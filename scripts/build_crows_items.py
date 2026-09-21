@@ -35,6 +35,24 @@ from margins.config import (
 )
 from margins.lattice import DEFAULT_LATTICE, DeclaredLattice, load_lattice_config
 from margins.lattice.config import default_lattice_config_dir
+from margins.stats.numbers import (
+    PAPER_NUMBERS_PATH,
+    PaperNumber,
+    read_paper_numbers,
+    write_paper_numbers,
+)
+
+#: The measured structural facts about the extractive paradigm, registered by key so the
+#: manuscript and the cross-paradigm figure quote them rather than retyping them. They are the
+#: evidence for a claim about **sentence-pair benchmarks**, never a null result about the model:
+#: CrowS-Pairs cannot express an intersectional effect, which is a different statement from not
+#: finding one.
+_COVERAGE_NOTE = (
+    "Measured by the P2 screen against the pinned CrowS-Pairs revision. Each item is annotated "
+    "with exactly one attribute, so an order-2 cell needs a second identity term present "
+    "unchanged in BOTH sentences. A fact about what sentence-pair benchmarks can support, never "
+    "a null result about the model."
+)
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -65,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--no-manifest", action="store_true", help="Skip the run manifest (exports only)."
+    )
+    parser.add_argument("--paper-numbers", type=Path, default=PAPER_NUMBERS_PATH)
+    parser.add_argument(
+        "--no-paper-numbers", action="store_true", help="Skip results/paper_numbers.json."
     )
     args = parser.parse_args(argv)
 
@@ -131,6 +153,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {key:<34} {manifest.input_checksums[key]}")
     print(f"\nwrote {manifest_path(cfg, manifest.run_id)}")
     print(f"\nsource file: {crows_pairs_path(args.data_dir)}")
+
+    if not args.no_paper_numbers:
+        by_order = result.counts_by_order()
+        common = {
+            "run_id": manifest.run_id,
+            "manifest_path": manifest_path(cfg, manifest.run_id).as_posix(),
+            "source": "scripts/build_crows_items.py",
+            "note": _COVERAGE_NOTE,
+        }
+        entries = [
+            PaperNumber(key="crows.rows_read", value=n_rows, unit="count", **common),
+            PaperNumber(key="crows.kept", value=result.n_kept, unit="count", **common),
+            PaperNumber(key="crows.excluded", value=result.n_excluded, unit="count", **common),
+            PaperNumber(
+                key="crows.order_1_items", value=by_order.get("order_1", 0), unit="count", **common
+            ),
+            PaperNumber(
+                key="crows.order_2_items", value=by_order.get("order_2", 0), unit="count", **common
+            ),
+            PaperNumber(
+                key="crows.no_cell_items", value=by_order.get("no_cell", 0), unit="count", **common
+            ),
+            PaperNumber(
+                key="crows.order_2_cells_populated", value=len(order_2), unit="count", **common
+            ),
+        ]
+        existing = read_paper_numbers(args.paper_numbers)
+        write_paper_numbers(existing.merged(entries), args.paper_numbers)
+        print(f"\npaper numbers: {len(entries)} -> {args.paper_numbers}")
     return 0
 
 

@@ -181,6 +181,26 @@ def main(argv: list[str] | None = None) -> int:
             note="27 prompts per cell x 4 sampled seeds. Derived, not a placeholder.",
         ),
         number("power.alpha", config.fdr.alpha, "probability", POWER_SOURCE),
+        # The two pre-registered thresholds the FIGURES draw as reference lines. They are read
+        # off the stats config, not authored here, and they are registered so that a figure can
+        # cite them by key like every other number rather than hard-coding a literal into a rule.
+        number(
+            "fdr.alpha",
+            config.fdr.alpha,
+            "probability",
+            "configs/stats/",
+            note="The FDR level the pre-registered family is controlled at.",
+        ),
+        number(
+            "drift.descriptive_only_ratio",
+            config.drift.descriptive_only_ratio,
+            "ratio",
+            "configs/stats/",
+            note=(
+                "drift_rms / model_rms at or above which a harm type becomes DESCRIPTIVE-ONLY "
+                "and the claim layer refuses to emit a significance claim for it."
+            ),
+        ),
         number(
             "power.gpu_hours",
             95.0,

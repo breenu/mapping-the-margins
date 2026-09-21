@@ -1,0 +1,53 @@
+benchmark,model_id,harm_type,axis_a,axis_b,estimable,reason,n_obs,n_items,n_cells,rms_interaction,powered,data_status
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,ability,gender_and_sex,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,ability,race_ethnicity,false,16 empty cells: no item attests them,3,3,16,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,age,ability,false,11 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,race_ethnicity,gender_and_sex,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,socioeconomic_class,age,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,stereotype_preference,socioeconomic_class,race_ethnicity,false,16 empty cells: no item attests them,3,3,16,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,gender_and_sex,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,race_ethnicity,false,16 empty cells: no item attests them,3,3,16,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,age,ability,false,11 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,race_ethnicity,gender_and_sex,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,age,false,12 empty cells: no item attests them,3,3,12,,false,fixture
+crows_pairs,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,race_ethnicity,false,16 empty cells: no item attests them,3,3,16,,false,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,ability,gender_and_sex,true,,1296,324,12,0.195078,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,ability,race_ethnicity,true,,1728,432,16,0.224256,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,age,ability,true,,1296,324,12,0.250455,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,age,race_ethnicity,true,,1296,324,12,0.318419,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,race_ethnicity,gender_and_sex,true,,1296,324,12,0.213533,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,socioeconomic_class,age,true,,1296,324,12,0.203044,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,regard,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.432614,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,gender_and_sex,true,,1296,324,12,0.381255,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,race_ethnicity,true,,1728,432,16,0.311393,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,age,ability,true,,1296,324,12,0.270699,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,age,race_ethnicity,true,,1296,324,12,0.212513,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,race_ethnicity,gender_and_sex,true,,1296,324,12,0.305204,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,age,true,,1296,324,12,0.327468,true,fixture
+open_gen_templates,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.239963,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,ability,gender_and_sex,true,,1296,324,12,0.218886,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,ability,race_ethnicity,true,,1728,432,16,0.227984,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,age,ability,true,,1296,324,12,0.271627,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,age,race_ethnicity,true,,1296,324,12,0.328388,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,race_ethnicity,gender_and_sex,true,,1296,324,12,0.203318,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,socioeconomic_class,age,true,,1296,324,12,0.263579,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,regard,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.40981,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,ability,gender_and_sex,true,,1296,324,12,0.288369,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,ability,race_ethnicity,true,,1728,432,16,0.236256,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,age,ability,true,,1296,324,12,0.327351,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,age,race_ethnicity,true,,1296,324,12,0.344926,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,race_ethnicity,gender_and_sex,true,,1296,324,12,0.446836,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,socioeconomic_class,age,true,,1296,324,12,0.358826,true,fixture
+open_gen_templates,mistralai/Mistral-7B-Instruct-v0.3,toxicity,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.386551,true,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,ability,gender_and_sex,true,,1296,324,12,0.368806,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,ability,race_ethnicity,true,,1728,432,16,0.39155,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,age,ability,true,,1296,324,12,0.163143,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,race_ethnicity,gender_and_sex,true,,1296,324,12,0.36794,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,socioeconomic_class,age,true,,1296,324,12,0.265812,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,regard,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.211167,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,gender_and_sex,true,,1296,324,12,0.230498,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,ability,race_ethnicity,true,,1728,432,16,0.29194,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,age,ability,true,,1296,324,12,0.184477,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,race_ethnicity,gender_and_sex,true,,1296,324,12,0.423875,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,age,true,,1296,324,12,0.174631,false,fixture
+redteam,meta-llama/Llama-3.1-8B-Instruct,toxicity,socioeconomic_class,race_ethnicity,true,,1728,432,16,0.417257,false,fixture

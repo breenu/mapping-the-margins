@@ -52,6 +52,17 @@ jobs:
       - name: pytest
         run: uv run pytest -q
 
+      - name: Regenerate every figure from the committed tables
+        # The P10 exit gate is "one command regenerates all figures". This runs that command with
+        # no arguments, which is the form a reader will use, and fails if any figure draws a
+        # number that traces to neither results/paper_numbers.json nor a committed result table.
+        #
+        # It deliberately does NOT diff against the committed figures/. Byte-determinism is
+        # asserted within one platform (tests/test_make_figures.py); cross-OS byte identity of
+        # PDF font subsets is not something this project has demonstrated, and invariant 5
+        # already scopes bit-identity rather than claiming it everywhere.
+        run: uv run python scripts/make_figures.py
+
   inference-cpu:
     # Runs the P5 gate: determinism, sequence log-probs, and the resumable harness, on CPU.
     #

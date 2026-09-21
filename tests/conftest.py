@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -80,3 +81,30 @@ def template_items(provenance: Provenance) -> tuple[Item, ...]:
             )
         )
     )
+
+
+# --------------------------------------------------------------------------------------
+# P10 figures
+# --------------------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_TABLES = REPO_ROOT / "results" / "fixtures"
+PAPER_NUMBERS = REPO_ROOT / "results" / "paper_numbers.json"
+
+
+@pytest.fixture(scope="session")
+def built_figures() -> list[tuple[object, object]]:
+    """Every P10 figure, built once from the committed fixture tables.
+
+    Session-scoped because the figures are the expensive part of the suite and every P10 test
+    interrogates the same set: the audit, the palette, the claim binding and the file writer all
+    ask different questions of one build.
+    """
+    from margins.viz.make import build_all
+
+    return [
+        (spec, written)
+        for spec, written in build_all(
+            table_dir=FIXTURE_TABLES, paper_numbers_path=PAPER_NUMBERS, save=False
+        )
+    ]
