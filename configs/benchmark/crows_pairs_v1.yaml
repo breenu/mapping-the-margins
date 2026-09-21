@@ -1,0 +1,161 @@
+# CrowS-Pairs ingestion contract (P2) -- the EXTRACTIVE paradigm.
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.benchmarks.config validates it
+# into a BenchmarkConfig. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# This is the second of the project's two paradigms and the reason RQ1 is answerable at all. The
+# first is the templated `open_gen` set; these two differ maximally IN KIND -- extractive sentence
+# log-likelihood against templated open generation -- which PROJECT_CONTEXT.md §1 argues is a
+# stronger test of the unification claim than agreement among four similar sentence-pair datasets.
+#
+# The pin below was RESOLVED by `python scripts/fetch_crows_pairs.py --write`, never authored. The
+# licence was READ off the upstream README at that same commit (the repository ships no LICENSE
+# file, so the GitHub API reports none) -- see margins/benchmarks/crows_pairs.py.
+
+key: crows_pairs_v1
+
+# VERSION HISTORY
+#   crows_pairs_v1@2026-09-20   initial extractive loader (P2).
+benchmark_version: "crows_pairs_v1@2026-09-20"
+
+benchmark: crows_pairs
+
+# Typed as a Literal in BenchmarkConfig. A coref or qa source has a different screen and a
+# different payload and must fail to LOAD here rather than fail review.
+task_type: pair_pll
+
+description: |
+  1,508 minimal sentence pairs, each differing in one identity attribute, from Nangia et al.
+  (EMNLP 2020). Ingested as `pair_pll` Items carrying both sentences in `payload`.
+
+  WHAT THIS MEASURES: whether the model assigns higher sequence log-likelihood to the more
+  stereotyping member of a pair than to its minimally different counterpart.
+
+  WHAT IT DOES NOT MEASURE: harm in generated text. The two paradigms are not two estimates of one
+  quantity -- that is the point of comparing them rather than pooling them (§10, k = 2, no pooling).
+
+  CONSTRUCT CAVEAT, carried on every number: the original metric is a MASKED pseudo-log-likelihood,
+  and Llama/Mistral are decoder-only. We use autoregressive whole-sequence log-likelihood instead,
+  scored on the RAW sentence with no chat template. Both choices are recorded in
+  `configs/decoding/pll_v1.yaml` and `docs/methods.md`.
+
+source:
+  source: "CrowS-Pairs (nyu-mll/crows-pairs)"
+  url: "https://github.com/nyu-mll/crows-pairs/blob/8aaac11c485473159ec9328a65253a5be9a479dc/data/crows_pairs_anonymized.csv"
+  path: "data/crows_pairs_anonymized.csv"
+  revision: "8aaac11c485473159ec9328a65253a5be9a479dc"
+  version: "v1.0"
+  # Read off the upstream README at the pinned commit, §License: "CrowS-Pairs is licensed under a
+  # Creative Commons Attribution-ShareAlike 4.0 International License."
+  license: "CC-BY-SA-4.0"
+  sha256: "dfb36986ce0502abbaf7055b9176da3d08d48e07df1251991b5dfbcbceab9d0c"
+  retrieved_at: "2026-09-20T00:00:00Z"
+
+# Counted from the pinned file, not assumed. Gate P2: "row counts match published dataset."
+expected_rows: 1508
+
+# ---------------------------------------------------------------------------------------------
+# ATTRIBUTE -> LATTICE AXIS
+#
+# Every one of the nine upstream categories is declared. A `bias_type` absent from this list makes
+# the load FAIL -- upstream gaining a tenth category is a thing a human must look at, not a thing a
+# filter should swallow.
+#
+# `axis: null` is a DECLARED OUTCOME, not a gap: the item is ingested, marked out-of-lattice, and
+# reported -- never dropped, and never forced into a cell. The lattice declares five axes, all
+# traced to HolisticBias v1.1 at a pinned commit; adding a religion or nationality axis to absorb
+# these categories would mean AUTHORING a descriptor taxonomy, which is exactly what the pinned
+# file and `build_lattice.py --verify` exist to prevent.
+#
+# Note what is NOT here: a surface-term alias table. `poor -> working-class` and
+# `Mexican -> Hispanic` are construct claims WE would be making. Attestation is literal surface
+# matching against the lattice's own values, so an item whose descriptor is not a lattice value
+# attests nothing on that axis and is logged as such. The cost is a low yield; the benefit is that
+# no cell assignment in this pipeline was invented.
+# ---------------------------------------------------------------------------------------------
+attributes:
+  - category: race-color
+    axis: race_ethnicity
+
+  - category: gender
+    axis: gender_and_sex
+
+  - category: age
+    axis: age
+
+  - category: disability
+    axis: ability
+
+  - category: socioeconomic
+    axis: socioeconomic_class
+
+  - category: religion
+    axis: null
+    note: >-
+      The lattice declares no religion axis. HolisticBias v1.1 has a `religion` axis, but the P3
+      selection took five axes on a deliberate power argument (cells grow multiplicatively), and
+      adding a sixth after the pre-registration tag would be an amendment to the confirmatory pair
+      set, not an ingestion detail. Kept and marked.
+
+  - category: nationality
+    axis: null
+    note: >-
+      No nationality axis. Nationality is also the axis the lattice's race_ethnicity note warns
+      about as a confound in name-proxied identity, so folding these items into race_ethnicity
+      would import exactly the confound P3 excluded.
+
+  - category: sexual-orientation
+    axis: null
+    note: >-
+      No sexual-orientation axis in the five-axis lattice. Kept and marked; a candidate for the
+      breadth-additive scope if the schedule allows (PROJECT_CONTEXT.md §1).
+
+  - category: physical-appearance
+    axis: null
+    note: >-
+      No physical-appearance axis. It overlaps ability and age without being either, so mapping it
+      onto one of them would confound the very pair (age x ability) that is confirmatory.
+
+# ---------------------------------------------------------------------------------------------
+# SCREENING (PROJECT_CONTEXT.md §9: "run minimal-pair checks; flag non-minimal pairs; log every
+# exclusion with a machine-readable reason").
+#
+# These thresholds are here, not in code, so the screen is inspectable and its effect on the
+# exclusion counts is a config diff. The exclusion REASONS and the order they apply in are not
+# configurable: both are part of what "screening is deterministic" means, and a config that could
+# reorder them could change which reason a given item is excluded under.
+# ---------------------------------------------------------------------------------------------
+screening:
+  max_differing_spans: 1
+  max_differing_tokens: 4
+  require_contrast_on_mapped_axis: true
+
+  # Obligatory grammatical concord, not a second contrast. Swapping `woman` for `man` FORCES
+  # `she` -> `he` and `her` -> `his`; English gives the writer no choice, so counting the pronoun
+  # as an independent differing region would label grammar as a construct flaw. Measured on the
+  # pinned file, that mislabelling accounted for 109 of 221 `not_minimal_pair` exclusions.
+  #
+  # DELIBERATELY NARROW. Only pronouns, possessives and reflexives -- the class whose FORM is
+  # determined by its antecedent. Honorifics (`sir`/`ma'am`) are excluded: an honorific is a
+  # lexical choice, not concord, and admitting it would let a pair whose whole contrast is two
+  # honorific substitutions read as minimal. `man`/`woman` are the ATTRIBUTE and are of course
+  # not here.
+  #
+  # This is a list WE author -- a fact about English rather than a claim about identity, but
+  # authored nonetheless, so it lives here where it can be criticised rather than in code. The
+  # screening report states how many rows it admitted, so the exclusion count stays comparable to
+  # a stricter reading of the same data.
+  agreement_tokens:
+    - he
+    - she
+    - him
+    - her
+    - his
+    - hers
+    - himself
+    - herself
+    - they
+    - them
+    - their
+    - theirs
+    - themselves

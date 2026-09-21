@@ -33,7 +33,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from margins.schemas import Condition, ItemScore, Prompt, Response
-from margins.scoring.base import ResponseScorer
+from margins.scoring.base import RosterScorer
 from margins.scoring.config import ScoringConfig
 from margins.scoring.standardize import (
     StandardizationReport,
@@ -163,7 +163,7 @@ class Triangulator:
     def __init__(
         self,
         config: ScoringConfig,
-        scorers: Sequence[ResponseScorer],
+        scorers: Sequence[RosterScorer],
         *,
         benchmark: str,
     ) -> None:
@@ -200,7 +200,7 @@ class Triangulator:
         return self._benchmark
 
     @property
-    def scorers(self) -> tuple[ResponseScorer, ...]:
+    def scorers(self) -> tuple[RosterScorer, ...]:
         return self._scorers
 
     def score_all(
@@ -316,17 +316,35 @@ def build_triangulator(
     benchmark: str,
     data_dir: object = None,
 ) -> Triangulator:
-    """Construct every scorer in a roster and wrap them in a :class:`Triangulator`."""
-    from margins.scoring.base import scorer_from_spec
+    """Construct every scorer in a roster and wrap them in a :class:`Triangulator`.
 
-    scorers = [
-        scorer_from_spec(
-            spec,
-            prompts_by_id=prompts_by_id,
-            benchmark=benchmark,
-            scoring_hash=config.scoring_hash,
-            data_dir=data_dir,
-        )
-        for spec in config.scorers
-    ]
+    Dispatches on the roster entry's mechanism, so a mixed roster would build a mixed triangulator.
+    In practice the two paradigms ship separate rosters -- ``scoring_hash`` rides in every
+    ``score_id``, so folding the paired scorers into ``default_v1`` would change the id of every
+    score the generation vertical already produced.
+    """
+    from margins.scoring.base import scorer_from_spec
+    from margins.scoring.paired import paired_scorer_from_spec
+
+    scorers: list[RosterScorer] = []
+    for spec in config.scorers:
+        if spec.reads_logprobs:
+            scorers.append(
+                paired_scorer_from_spec(
+                    spec,
+                    prompts_by_id=prompts_by_id,
+                    benchmark=benchmark,
+                    scoring_hash=config.scoring_hash,
+                )
+            )
+        else:
+            scorers.append(
+                scorer_from_spec(
+                    spec,
+                    prompts_by_id=prompts_by_id,
+                    benchmark=benchmark,
+                    scoring_hash=config.scoring_hash,
+                    data_dir=data_dir,
+                )
+            )
     return Triangulator(config, scorers, benchmark=benchmark)

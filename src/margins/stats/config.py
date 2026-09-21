@@ -102,6 +102,20 @@ class FdrSettings(BaseModel):
         description="Also compute fdr_by as a sensitivity column. Never replaces `method`.",
     )
     family_terms: FamilyTerms = "free_interaction"
+    family_benchmarks: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "The sources the family spans, PRE-REGISTERED. Added at P2, and it closes a real hole: "
+            "the benchmark dimension used to be inferred from whichever effects happened to land "
+            "in `effects.parquet`, so `family_size` was a function of which files were on disk. "
+            "The 'correcting a subset RAISES' guard could not catch a wholly absent benchmark, "
+            "because the expected set was built FROM the offered effects -- running P9 on an "
+            "open_gen-only directory would quietly produce a smaller family and more discoveries. "
+            "Declared here, a benchmark that arrives with neither effects nor a P7 not-estimable "
+            "excuse raises instead. Empty means 'infer', which is the pre-P2 behaviour and is kept "
+            "only so a fixture config need not name sources it does not have."
+        ),
+    )
     prds_justification: str = Field(
         default="",
         description=(

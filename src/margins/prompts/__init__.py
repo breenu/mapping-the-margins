@@ -5,9 +5,10 @@ that can reach arbitrary lattice cells, and therefore the only path to the non-g
 coverage that is novelty claim 5. It is the first stage that produces a
 :class:`~margins.schemas.Prompt`, and it starts the generation vertical that carries RQ2.
 
-``ExtractiveRenderer`` (P4b) **derives** a cell from a source item, cannot exist before a loader
-does, and rides with the CrowS-Pairs vertical. It is deliberately absent here, as is open decision
-7 (the paired-task prompt representation), which ``open_gen`` never reaches.
+``ExtractiveRenderer`` (P4b) **derives** a cell from a source item and rides with the CrowS-Pairs
+vertical. Added 20 Sep 2026 together with the resolution of open decision 7: a paired prompt
+carries BOTH sequences on one record, mirroring decision 6's one ``Response`` carrying both
+log-probabilities.
 """
 
 from __future__ import annotations
@@ -22,16 +23,21 @@ from margins.prompts.audit import (
     sample_for_fill_audit,
 )
 from margins.prompts.config import (
+    DEFAULT_EXTRACTIVE_SET,
     DEFAULT_PROMPT_SET,
+    EXTRACTIVE_SET_INPUT_KEY,
     MAX_CARRIERS,
     PROMPT_SET_INPUT_KEY,
     TEMPLATE_INPUT_PREFIX,
     CarrierSpec,
+    ExtractivePromptSetConfig,
     PromptSetConfig,
     TemplateFile,
     TemplateSpec,
     default_prompt_config_dir,
+    extractive_config_from_mapping,
     file_sha256,
+    load_extractive_config,
     load_prompt_config,
     load_template_files,
     prompt_config_from_mapping,
@@ -49,6 +55,7 @@ from margins.prompts.export import (
     write_phrase_audit,
     write_prompts,
 )
+from margins.prompts.extractive import ExtractiveRenderer, make_extractive_prompt_id
 from margins.prompts.render import (
     TEMPLATE_ITEM_BENCHMARK,
     TemplateRenderer,
@@ -62,7 +69,9 @@ from margins.prompts.render import (
 )
 
 __all__ = [
+    "DEFAULT_EXTRACTIVE_SET",
     "DEFAULT_PROMPT_SET",
+    "EXTRACTIVE_SET_INPUT_KEY",
     "FILL_AUDIT_FILENAME",
     "FILL_AUDIT_SAMPLE_SIZE",
     "MAX_CARRIERS",
@@ -73,6 +82,8 @@ __all__ = [
     "TEMPLATE_INPUT_PREFIX",
     "TEMPLATE_ITEM_BENCHMARK",
     "CarrierSpec",
+    "ExtractivePromptSetConfig",
+    "ExtractiveRenderer",
     "PhraseReviewNote",
     "PromptSetConfig",
     "TemplateFile",
@@ -82,10 +93,13 @@ __all__ = [
     "cell_surfaces",
     "default_prompt_config_dir",
     "export_prompt_set",
+    "extractive_config_from_mapping",
     "file_sha256",
     "identity_vocabulary",
+    "load_extractive_config",
     "load_prompt_config",
     "load_template_files",
+    "make_extractive_prompt_id",
     "make_prompt_id",
     "matched_terms",
     "mechanical_flags",

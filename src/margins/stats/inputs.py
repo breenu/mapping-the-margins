@@ -22,6 +22,7 @@ the failure it prevents is a published number.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,7 @@ __all__ = [
     "effect_key",
     "items_per_cell",
     "load_stats_inputs",
+    "load_stats_inputs_many",
     "series_key",
 ]
 
@@ -70,8 +72,31 @@ class StatsInputs:
 
     @property
     def groups(self) -> list[tuple[str, str, str]]:
-        """``(benchmark, model, harm_type)`` combinations present, sorted."""
+        """``(benchmark, model, harm_type)`` combinations present in the ESTIMATES, sorted."""
         return sorted({(e.benchmark, e.model, e.harm_type) for e in self.effects})
+
+    @property
+    def attempted_groups(self) -> list[tuple[str, str, str]]:
+        """``(benchmark, model, harm_type)`` combinations P7 **attempted**, sorted.
+
+        Taken from ``fit_reports`` rather than from ``effects``, and the difference is the point
+        (P2). A fit report is emitted for every pair whether or not it was estimable, so this is
+        what P7 *tried*; ``groups`` is what it *managed*. Declaring the family over what was
+        attempted is what lets a source whose every pair came back not-estimable still take its
+        place in the family and be excused, instead of vanishing from it and quietly shrinking the
+        Benjamini-Hochberg denominator.
+
+        Restricted to the triangulated model series (``scorer_id is None``, ``condition ==
+        "model"``), which is the series ``EffectEstimate`` rows come from. Per-scorer fits and the
+        drift series are reported beside it and are not members of the family.
+        """
+        return sorted(
+            {
+                (r.benchmark, r.model_id, r.harm_type)
+                for r in self.fit_reports
+                if r.scorer_id is None and r.condition == "model"
+            }
+        )
 
 
 def load_stats_inputs(metrics_dir: Path) -> StatsInputs:
@@ -102,6 +127,56 @@ def load_stats_inputs(metrics_dir: Path) -> StatsInputs:
         comparisons=read("drift_comparison", DriftComparison),
         harm_flags=read("harm_flags", HarmTypeFlag),
         paths=paths,
+    )
+
+
+def load_stats_inputs_many(metrics_dirs: Sequence[Path]) -> StatsInputs:
+    """Read and concatenate several P7 output directories into one :class:`StatsInputs`.
+
+    Needed from P2 onward, and it is not a convenience. Section 8 defines the FDR family as
+    ``benchmark x model x axis_pair x term x harm_type`` **across the entire pre-registered set,
+    never per-source** -- so correcting the two paradigms means correcting them *together*, in one
+    call, over one family. ``run_metrics.py`` writes one directory per benchmark, so P9 has to be
+    able to read more than one.
+
+    A duplicated effect **raises**. Two directories offering the same key would silently double a
+    test's weight in the Benjamini-Hochberg denominator, which is the same failure as correcting a
+    subset, in the opposite direction.
+    """
+    if not metrics_dirs:
+        raise ValueError("no metrics directory given")
+
+    loaded = [load_stats_inputs(directory) for directory in metrics_dirs]
+    if len(loaded) == 1:
+        return loaded[0]
+
+    effects: list[EffectEstimate] = []
+    seen: dict[EffectKey, Path] = {}
+    for inputs, directory in zip(loaded, metrics_dirs, strict=True):
+        for effect in inputs.effects:
+            key = effect_key(effect)
+            if key in seen:
+                raise ValueError(
+                    f"effect {key} appears in both {seen[key]} and {directory}. Correcting it "
+                    "twice would double its weight in the family and inflate the realized false "
+                    "discovery rate."
+                )
+            seen[key] = directory
+            effects.append(effect)
+
+    merged_paths: dict[str, Path] = {}
+    for index, inputs in enumerate(loaded):
+        for name, path in inputs.paths.items():
+            merged_paths[name if index == 0 else f"{name}:{index}"] = path
+
+    return StatsInputs(
+        effects=effects,
+        fit_terms=[r for i in loaded for r in i.fit_terms],
+        fit_reports=[r for i in loaded for r in i.fit_reports],
+        cell_stats=[r for i in loaded for r in i.cell_stats],
+        comparisons=[r for i in loaded for r in i.comparisons],
+        harm_flags=[r for i in loaded for r in i.harm_flags],
+        paths=merged_paths,
     )
 
 

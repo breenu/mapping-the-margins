@@ -38,7 +38,7 @@ from typing import Final, Protocol, runtime_checkable
 from margins.inference.backend import make_response_id
 from margins.inference.decoding import DecodingConfig
 from margins.inference.models import ModelSpec
-from margins.schemas import Prompt, Response
+from margins.schemas import Prompt, Response, TaskType
 
 __all__ = [
     "DEFAULT_RESPONSES_DIR",
@@ -80,6 +80,17 @@ class GenerativeBackend(Protocol):
         token_logprobs: bool = ...,
     ) -> list[Response]:
         """Generate one response per prompt."""
+
+    def score_pairs(
+        self, prompts: Sequence[Prompt], *, seed: int | None = ..., sample_index: int = ...
+    ) -> list[Response]:
+        """Score paired prompts into one response each (``pair_pll``).
+
+        Part of the Protocol rather than an optional extra, because the harness dispatches on
+        ``Prompt.task_type`` and a backend that could not answer for half the task types would
+        make resumability conditional on which paradigm was running. The llama.cpp fallback would
+        implement both for the same reason.
+        """
 
 
 #: Raw text goes to JSONL (PROJECT_CONTEXT.md section 6); ``data/`` is gitignored and regenerable.
@@ -322,17 +333,24 @@ class RunHarness:
         )
 
     def _batches(self, tasks: Sequence[RunTask]) -> list[list[RunTask]]:
-        """Chunk outstanding work into batches that never straddle a seed.
+        """Chunk outstanding work into batches that never straddle a seed or a task type.
 
         The seed drives the RNG for a whole batch, so mixing two seeds in one forward pass would
         generate both under whichever seed happened to be first -- silently, and only when the
         outstanding count is not a multiple of the batch size, which is exactly the state a
         *resumed* run is in. Grouping by seed first makes that unrepresentable.
+
+        The task-type clause arrived with P2 and has the same shape: ``pair_pll`` work is scored,
+        not generated, so a batch mixing the two would have to be dispatched down one path for
+        prompts belonging on the other.
         """
         batches: list[list[RunTask]] = []
         group: list[RunTask] = []
         for task in tasks:
-            if group and (group[0].seed != task.seed or len(group) == self._batch_size):
+            straddles = group and (
+                group[0].seed != task.seed or group[0].prompt.task_type is not task.prompt.task_type
+            )
+            if straddles or len(group) == self._batch_size:
                 batches.append(group)
                 group = []
             group.append(task)
@@ -341,18 +359,26 @@ class RunHarness:
         return batches
 
     def _run_batch(self, batch: Sequence[RunTask]) -> list[Response]:
-        """Generate one batch. Every task in it shares a seed, since the seed drives the RNG."""
+        """Run one batch. Every task in it shares a seed and a task type."""
         seeds = {task.seed for task in batch}
         if len(seeds) != 1:  # pragma: no cover - _batches() guarantees this
             raise ValueError(f"a batch must share one seed, got {sorted(seeds)}")
+        task_types = {task.prompt.task_type for task in batch}
+        if len(task_types) != 1:  # pragma: no cover - _batches() guarantees this
+            raise ValueError(f"a batch must share one task type, got {sorted(task_types)}")
         task = batch[0]
-        responses = self._backend.generate(
-            [item.prompt for item in batch],
-            seed=task.seed,
-            sample_index=task.sample_index,
-            batch_size=len(batch),
-            token_logprobs=self._token_logprobs,
-        )
+        if task.prompt.task_type is TaskType.PAIR_PLL:
+            responses = self._backend.score_pairs(
+                [item.prompt for item in batch], seed=task.seed, sample_index=task.sample_index
+            )
+        else:
+            responses = self._backend.generate(
+                [item.prompt for item in batch],
+                seed=task.seed,
+                sample_index=task.sample_index,
+                batch_size=len(batch),
+                token_logprobs=self._token_logprobs,
+            )
         produced = {response.response_id for response in responses}
         expected = {item.response_id for item in batch}
         if produced != expected:

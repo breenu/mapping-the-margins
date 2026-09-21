@@ -8,17 +8,25 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P3 ✅ · P4a ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P9 ✅ complete.** P0: environment,
+**P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4a ✅ · P4b ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P9 ✅ complete.** P0: environment,
 `margins.repro`, `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) +
 `margins.interfaces` (Protocols), walking skeleton, schema field-freeze test. P3:
 `margins.lattice`. P4a: `margins.prompts` — `TemplateRenderer`, the leakage guard, the phrase
 review. P5: `margins.inference`. P6: `margins.scoring` — the 4-scorer roster, standardization with
 an executable sign contract, triangulation + agreement, the identity-drift control. P7:
 `margins.metrics` — the emergence estimator, item-clustered SEs, the cluster bootstrap, the drift
-comparison.
+comparison. P2/P4b: `margins.benchmarks` (the CrowS-Pairs loader + screening),
+`margins.prompts.extractive`, `margins.scoring.paired` — the second paradigm, end to end.
 
 **P9 ✅ `margins.stats` — DONE 19 Sep 2026, and it changed the design.** All four gates green on
 `win_amd64` and in CI on both OSes (`core (ubuntu-latest)` and `core (windows-latest)`).
+
+**P2 + P4b ✅ the EXTRACTIVE vertical — DONE 20 Sep 2026, and it produced a measured result.**
+CrowS-Pairs pinned, screened, rendered, scored and joined to the existing metric + stats layers.
+**Open decision #7 is CLOSED.** The headline finding: **CrowS attests 3 order-2 cells out of 1,352
+kept items**, so every confirmatory pair is not estimable and is excused by P9. That is a fact
+about what sentence-pair benchmarks can support, not a null result about the model -- see
+"P2 + P4b as built" and `docs/methods.md` §2.5.
 
 **✅ PRE-REGISTRATION TAGGED: `prereg-v1` at commit `067b50e`, 19 Sep 2026.** Every locked value
 was verified against the live configs by RECOMPUTATION before tagging, not by reading the
@@ -26,7 +34,21 @@ document: the 168-term family from the lattice, the thresholds from `configs/sta
 from `configs/lattice/`. **NO FULL EXPERIMENTAL RUN MAY BE EXECUTED AGAINST AN EARLIER COMMIT.**
 Amendments are permitted, versioned and logged in §10 of `docs/preregistration.md`.
 
-**NEXT TASK: P2 — the CrowS-Pairs loader.** Then P4b (the extractive renderer), P8, P10.
+**NEXT TASK: P8 — automated red-teaming** (confirmatory axis pairs only). Then P10, P11.
+
+### ⚠ AWAITING HUMAN / SUPERVISOR SIGN-OFF — the RQ1 reframing (registered 21 Sep 2026)
+
+The P2 measurement (3 order-2 cells out of 1,352 kept items) has been **registered as a scoping
+decision**, not just a caveat: CrowS-Pairs' role is **(a) single-axis calibration** and **(b)
+positive evidence that standard sentence-pair benchmarks structurally cannot support intersectional
+auditing**, and **RQ1's cross-paradigm claim is scoped accordingly** — the *interaction* comparison
+is generation vs. red-team, while generation vs. extraction is compared at the single-axis /
+descriptive level beside the structural finding.
+
+Written into `docs/PROJECT_CONTEXT.md` §1 ("CrowS-Pairs' measured role"), §11's P2 gate row, §12's
+E2 bullet, and `docs/preregistration.md` §10 + §11. **This changes what RQ1 claims and is therefore
+the human's call, not Claude's.** Nothing downstream is blocked on it — the code and the artifacts
+are unaffected — but the paper text must not be written until it is signed off.
 
 ### ⚠ THE P9 FINDING — read this before touching the design
 
@@ -52,6 +74,99 @@ corrections are load-bearing. **Do not re-litigate any of this; it is measured.*
    designs are close to uninformative; a single-template design cannot estimate a cluster-robust
    SE at all. Written up in **`docs/power_and_precision.md`**, keyed in
    `results/paper_numbers.json` under `field.power_at_9_prompts.*`.
+
+### P2 + P4b as built (the EXTRACTIVE vertical — for P8/P10 to consume)
+
+- **CONTRACT CHANGE: `Prompt` gained `rendered_text_stereo` + `rendered_text_antistereo`**
+  (`str | None`, null on `open_gen`). **This closes open decision #7** — see the decision table
+  below. `tests/test_schema_field_freeze.py` updated with a dated comment, as `prompt_id` was.
+  Unlike `Response`, `Prompt` carries `task_type`, so "both sequences exactly when paired" is a
+  **single-record** validator: a paired prompt must carry both, both non-empty and distinct, and
+  `rendered_text == ""` (the two sequences ARE the input, one per forward pass — mirroring
+  `Response.text=""`). `ExperimentConfig` gained `benchmark_name` (optional, `None` by default:
+  most runs ingest no benchmark).
+- **The pin was RESOLVED, never authored.** `nyu-mll/crows-pairs` @
+  `8aaac11c485473159ec9328a65253a5be9a479dc`, sha256 `dfb36986ce05…`, **1,508 rows**, CC-BY-SA-4.0.
+  `scripts/fetch_crows_pairs.py` has the same three modes as `fetch_lexicons.py` and STOPS on a
+  404 or a digest mismatch. **The licence was READ off the upstream README at that commit** — the
+  repo ships no LICENSE file, so the GitHub API reports none, and the README sentence is the
+  authority. Recorded in `crows_pairs.py` so a reproducer can check the same file.
+- **⚠ THE MEASURED FINDING — CrowS cannot estimate an interaction, and that is a RESULT.**
+  1,508 rows → **1,352 kept, 156 excluded**; of the kept, **198 order-1 cells and 3 order-2**.
+  Each CrowS item is annotated with ONE attribute, so an order-2 cell needs a second identity term
+  present *unchanged in both* sentences. The estimator fits order-2 only and needs every grid cell
+  non-empty, so **every confirmatory pair comes back `estimable=False`** with an explicit
+  "12 empty cells" reason, and P9 excuses them. **Report it as a fact about the paradigm — never
+  as a null result about the model.** It is the extractive analogue of the P9 field result and is
+  written up in `docs/methods.md` §2.5.
+- **Attestation is LITERAL, and there is no alias table.** `poor` is not read as `working-class`,
+  `Mexican` is not read as `Hispanic`. Surface matching is case-insensitive on word boundaries
+  (the lattice pins `Black`/`Deaf`; CrowS writes "black kids"). The cost is a low yield; the
+  benefit is that **no cell assignment in this pipeline was authored**. 761 kept items attest no
+  lattice value and 390 are out-of-lattice — both **kept and marked**, never dropped, never celled.
+- **Attribute → axis, all nine declared; an undeclared `bias_type` RAISES.** `race-color`→
+  `race_ethnicity`, `gender`→`gender_and_sex`, `age`→`age`, `disability`→`ability`,
+  `socioeconomic`→`socioeconomic_class`; `religion` / `nationality` / `sexual-orientation` /
+  `physical-appearance` → **out-of-lattice with a required note** (`axis: null` without a reason
+  fails to load, because it is otherwise indistinguishable from an unfinished mapping).
+- **THE SIGN HAZARD IS REAL AND RESOLVED ONCE.** **218 of 1,508 rows are `antistereo`**, meaning
+  upstream's `sent_more` is the *anti*-stereotypical member. `CrowsRow.sent_stereo` is the only
+  place that swap is expressed; nothing downstream reads the raw columns for direction.
+- **Screening is deterministic and pure** — no I/O, no RNG, no clock, no order dependence — and
+  every exclusion carries one machine-readable reason. Two artifacts beyond the gate:
+  `excluded_items.csv` and a **coverage report**, because the order-2 yield had to be *measured*.
+  A **grammatical-concord allowance** is declared in the config, counted, and reported: obligatory
+  `she`→`he` concord is not a second contrast. It admitted **68 rows**, so a stricter reading would
+  record 221 `not_minimal_pair` rather than 153. Honorifics are deliberately excluded from it.
+- **Gate P4b is enforced on every emission, not by a checker a script must remember to call.**
+  `ExtractiveRenderer._check_attestation` verifies the claimed cell against the **TEXT**, not
+  against the payload that claims it (a payload is an assertion), and additionally requires an
+  order-2 cell's second value to appear in **both** sentences. Cells are **looked up** in
+  `lattice.cells()`, never constructed. Byte-identical regeneration verified.
+- **Item ids use `/`, not `::`** (`crows_pairs/0000`), matching P4a's `open_gen_templates/describe`:
+  `prompt_id` joins four fields with `::`, and `make_extractive_prompt_id` now raises if a field
+  contains it. **Both sequences enter the digest preimage** — `make_response_id` does not cover the
+  scored texts, so `prompt_id` is the only place a pair's identity can live.
+- **`pair_pll` scoring: a NEW harm type, a SEPARATE roster, and no drift control.**
+  `stereotype_preference` with two reductions — `pll_total` and `pll_length_normalized` —
+  under `configs/scoring/crows_pll_v1.yaml`. **Separate roster because `scoring_hash` rides in
+  every `score_id`**: folding these into `default_v1` would change the id of every existing
+  `open_gen` score for rows whose value did not change. A paired measurement has **no external
+  instrument**, so framing constraint 6 is met by two reductions that *fail differently* (the
+  length/frequency confound) rather than two classifiers; their α was **0.694** on the dev smoke,
+  i.e. genuinely informative. **Length is in whitespace WORDS, not tokens** — per-sequence token
+  counts are not on the `Response` — and that limitation is stated in `docs/methods.md`.
+  **No drift control exists for this paradigm**, structurally: the control scores known-neutral
+  TEXT through the same INSTRUMENT and a log-prob difference has neither. The run prints that.
+- **`verify_paired_sign` needs NO model.** A text probe checks an instrument; a paired scorer's
+  polarity is a property of *our arithmetic*, so the probe supplies log-probabilities and runs on
+  the torch-free core env. Tests cover both a reversed `sign` and a reversed subtraction.
+- **`scorer_from_spec` is now EXHAUSTIVE** — it was an `if/else` that silently routed any new
+  mechanism to `HFClassifierScorer`. A likelihood spec carries **no pin** (its instrument is the
+  model under test, pinned by `ModelSpec`), enforced rather than tolerated.
+- **Three minimal fixes at the join, each noted:**
+  1. **`metric.compute_result` now SKIPS a null `cell_id`** instead of raising. A null cell is a
+     legal documented state ("the source attests no cell"); the generation path never produced one,
+     the extractive path produces 1,151. Raising made an expected property of paradigm two look
+     like a data error *and* took down the open_gen rows in the same file. They count into
+     `n_skipped_rows` beside the drift rows.
+  2. **The FDR family's benchmark dimension is now DECLARED** (`family_benchmarks` in
+     `configs/stats/`), and comes from `fit_reports` (what P7 *attempted*) rather than `effects`
+     (what it *managed*). This closes a real hole: the expected set used to be built FROM the
+     offered effects, so a wholly absent source was undetectable and P9 would quietly correct over
+     a *smaller* family — i.e. make more discoveries — on a `family_size` that was really a
+     function of which files were on disk. Declared source missing → raises; undeclared source
+     present → raises. **Each source brings its own harm types**, so no member is invented.
+  3. `run_scoring.py` / `run_metrics.py` took `--benchmark`; the hard-coded
+     `BENCHMARK = "open_gen_templates"` would have pooled the two paradigms into one z-score.
+- **`Triangulator` is typed against a new `RosterScorer` Protocol**, satisfied by both
+  `ResponseScorer` and `PairedScorer`, so the second paradigm joins on the shared contract rather
+  than on a second code path. `standardize_within_benchmark`, `estimator`, `design` and `correct`
+  needed **no changes at all** — which is the unified-metric-layer claim doing its job.
+- **Artifacts** under `data/benchmarks/crows_pairs/` (`items_v1.jsonl`, `excluded_items.csv`,
+  `screening_report.md`, `coverage_report.md`) and `data/prompts/crows_pll_v1.jsonl`. All
+  byte-deterministic, all verified so. `docs/methods.md` is new and carries the causal-model
+  caveat. No new dependencies.
 
 ### P9 as built (for P2/P10 to consume)
 
@@ -232,9 +347,10 @@ corrections are load-bearing. **Do not re-litigate any of this; it is measured.*
   writer metadata, so unlike the lattice/prompt exports it is **not byte-deterministic**. What is
   asserted and tested is **round-trip content equality on a canonically sorted frame** — which is what
   P7 depends on. `agreement.csv`/`.md` *are* byte-deterministic.
-- **Open decision #7 is still open, by construction.** `ResponseScorer.score()` **refuses** a paired
-  response rather than text-scoring it; the `TODO(P2)` in `scoring/base.py` names where a
-  `PairedScorer` will read `Response.stereo_preference` instead. Nothing is encoded.
+- ~~**Open decision #7 is still open, by construction.**~~ **CLOSED at P2 (20 Sep 2026).**
+  `ResponseScorer.score()` still **refuses** a paired response rather than text-scoring it -- that
+  refusal survived and is now one half of a symmetric pair, since `PairedScorer` refuses a
+  generated one. The `TODO(P2)` became `margins.scoring.paired`.
 - **`configs/config.yaml` gained `scoring_name`** (the `_name` suffix rule again — `configs/scoring/`
   is a Hydra config GROUP). New **core** deps, not the inference extra, because agreement,
   standardization, drift arithmetic and calibration must all run on the torch-free CI job:
@@ -273,9 +389,10 @@ corrections are load-bearing. **Do not re-litigate any of this; it is measured.*
   one seed return identical text, so `plan()` rejects repeated seeds. Batches never straddle a seed.
 - **Determinism is now scoped to batch size too.** Padding changes reduction order, so
   `residual_nondeterminism_note()` gained a batch-size clause and the manifest records `batch_size`.
-- **Open decision #7 is still open, by construction.** `run()` **refuses** `pair_pll` and names it;
-  `HFBackend.score_pair()` builds decision #6's shape (one `Response`, both sequence log-probs) but
-  takes both strings from its caller rather than encoding a representation. Settle #7 at P2/P4b.
+- ~~**Open decision #7 is still open, by construction.**~~ **CLOSED at P2/P4b (20 Sep 2026).**
+  `run()` no longer refuses `pair_pll`; it routes to `score_pairs` and refuses a **mixed** call
+  instead. `score_pair()` still accepts explicit sequences, but now defaults to reading them off
+  the prompt, and `sample_index` became a parameter so the harness's planned ids line up.
 - **`schemas.py` was NOT touched** — `Response` already had every field P5 needed.
 - **`margins.inference` imports with no torch installed** (lazy imports, as `repro` does), so
   `mypy src` and the core suite still run on the core environment.
@@ -367,10 +484,10 @@ the documented reproducibility fallback.
   `lattice_config`, `prompt_set_config` and one `template:<id>` per frame. The lattice digest
   matches what `scripts/build_lattice.py` prints. *Named `lattice_name`, not `lattice`, because
   `configs/lattice/` is a Hydra config GROUP and a colliding key cannot be overridden at all.*
-- **Open decision #7 is untouched.** `open_gen` never needs a second sequence; `PromptSetConfig`
-  types `task_type` as `Literal["open_gen"]` and the renderer rejects non-`open_gen` items, so the
-  paired path fails to load rather than being half-built. TODO(P4b) markers are in
-  `margins/prompts/render.py`.
+- ~~**Open decision #7 is untouched.**~~ **CLOSED at P4b (20 Sep 2026).** `PromptSetConfig` still
+  types `task_type` as `Literal["open_gen"]`, and that narrowness is why P4b added a **separate**
+  `ExtractivePromptSetConfig` rather than widening it: the two renderers share almost no fields, and
+  one config class would have made every field optional for one of them.
 
 ### P4a phrase review — all 4 findings resolved (decided 8 Sep 2026)
 
@@ -429,8 +546,8 @@ a RESOLVED note that matches any cell fails the suite.
 Phase IDs are **stable labels, not a sequence**; they deliberately run out of numeric order. The
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
-> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → P9 ✅ → **P2** (CrowS-Pairs) →
-> **P4b** (ExtractiveRenderer) → P8 → P10 → P11 → P12 → P13
+> P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → P9 ✅ → P2 ✅ (CrowS-Pairs) →
+> P4b ✅ (ExtractiveRenderer) → **P8** → P10 → P11 → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
 estimand. Generation-first means a slip costs **breadth** (RQ1's second paradigm — already cuttable
@@ -500,13 +617,31 @@ uv run python scripts/run_scoring.py --responses data/responses/<model>/<run_id>
 uv run python scripts/build_calibration_sample.py --harm-type toxicity --responses <file>
 uv run python scripts/calibration_report.py --labels data/scoring/labels_toxicity.jsonl
 
+# P2 + P4b, the EXTRACTIVE vertical (CrowS-Pairs). Core env for ingestion; the paired scoring path
+# needs no torch either -- only the inference run does. The fetch script STOPS rather than
+# substituting, exactly like the lexicon one.
+uv run python scripts/fetch_crows_pairs.py                # --verify (default): disk vs the pin
+uv run python scripts/fetch_crows_pairs.py --fetch-pinned # download AT the recorded revision (CI)
+uv run python scripts/fetch_crows_pairs.py --write        # RE-PINS to upstream HEAD. A human action.
+uv run python scripts/build_crows_items.py                # screen -> items + excluded_items.csv
+uv run python scripts/build_crows_prompts.py              # P4b: one paired Prompt per item
+uv run python scripts/run_inference.py --model llama32_1b_instruct \
+    --prompts data/prompts/crows_pll_v1.jsonl --decoding pll_v1 --limit 40
+uv run python scripts/run_scoring.py --responses <file> --prompts data/prompts/crows_pll_v1.jsonl \
+    --scoring crows_pll_v1 --benchmark crows_pairs --out-dir data/scoring/crows_pairs
+uv run python scripts/run_metrics.py --scores data/scoring/crows_pairs/scores.parquet \
+    --drift data/scoring/crows_pairs/drift_control.parquet --benchmark crows_pairs \
+    --out-dir data/metrics/crows_pairs
+
 # P7 metrics. Core env, no torch. Reads the two P6 parquets; writes data/metrics/ + a manifest.
 # --n-resamples overrides the config's 2000 for smoke runs only (recorded as used).
 uv run python scripts/run_metrics.py
 uv run python scripts/run_metrics.py --n-resamples 200      # smoke
 
 # P9 stats. Core env, no torch. The ONLY stage that declares significance.
-uv run python scripts/run_stats.py              # FDR + drift enforcement + claims
+# --metrics-dir takes BOTH paradigms' directories: the FDR family spans the whole
+# pre-registered set and is NEVER corrected per-source (§8).
+uv run python scripts/run_stats.py --metrics-dir data/metrics data/metrics/crows_pairs
 uv run python scripts/run_power_analysis.py     # the power simulation (slow, ~30 min)
 uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json
 # rho was MEASURED 19 Sep 2026 (regard 0.35, toxicity 0.18). Do NOT re-run these two: both
@@ -642,11 +777,26 @@ desk-reject. Rationale for each is in `docs/PROJECT_CONTEXT.md`.
    is fixed by the sign convention: `logprob_stereo − logprob_antistereo` is **positive when the
    model prefers the stereotyping sequence**, i.e. higher = more harm, matching the standardization
    rule. Implemented in `schemas.py`; the field-freeze test was updated deliberately.
-7. **Paired-task prompt representation** (before P4b/P6 — *not* hit by the generation MVP): decision
-   6 settled the **scoring shape only**. `InferenceBackend.run()` sees only `Prompt`s, and
-   `Prompt.rendered_text` is a single string, so it cannot carry the two sequences a `pair_pll`
-   response needs. Options: a second rendered-text field on `Prompt`, a canonical joined encoding, or
-   a paired-prompt variant. Nothing is encoded yet — do not let this slip past the CrowS-Pairs loader.
+7. ~~**Paired-task prompt representation**~~ — **DECIDED 20 Sep 2026 with P2/P4b: both sequences on
+   ONE `Prompt`.** `rendered_text_stereo` + `rendered_text_antistereo` (`str | None`, both null on
+   `open_gen`), mirroring decision 6's one `Response` carrying both sequence log-probs. The pair
+   travels as a single unit end to end: **one `Prompt` → one `Response` → one score.**
+
+   *Rationale:* a pair is one measurement, so it belongs on one record — the same argument that
+   settled decision 6, and the alternatives were worse for concrete reasons. Two linked `Prompt`
+   records would have made `prompt_id` ambiguous as the metric layer's **cluster key** (P7 clusters
+   by ITEM, and half a pair is not an item) and forced every consumer between the renderer and the
+   FDR family to know that two rows are sometimes one measurement. A canonical joined encoding
+   would have put a parser between the renderer and the backend, and any separator it chose could
+   appear in a source sentence.
+
+   *Enforced, not documented:* `Prompt` carries `task_type`, so unlike `Response` this is a
+   single-record validator — a `pair_pll` prompt must carry both sequences, both non-empty and
+   distinct, and `rendered_text == ""`, because the two sequences ARE the input (one per forward
+   pass) and inventing a single rendered text would misrepresent what was measured. An `open_gen`
+   prompt must leave both null. `HFBackend.run()` no longer refuses a paired prompt; it routes to
+   `score_pairs`, and refuses a **mixed** call instead, since the two paradigms run under different
+   decoding profiles and a backend holds one.
 8. ~~**E1 decoding grid + compute host**~~ — **DECIDED 18 Sep 2026, from the measured Kaggle timing
    pilot.** Do not reopen and do not re-recommend running the pilot.
 

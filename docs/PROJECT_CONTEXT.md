@@ -73,7 +73,7 @@ Every novelty claim must be demonstrated **inside** the narrow scope:
 | Novelty claim (above) | Demonstrated in narrow scope by |
 |---|---|
 | 1. Native intersectional metrics in a reproducible toolkit | The metric layer + `EffectEstimate`, exercised on both paradigms |
-| 2. Benchmarks **+** red-teaming under one comparable score | CrowS-Pairs (extractive `pair_pll`) + templated `open_gen` + red-team, all producing standardized effects on one scale |
+| 2. Benchmarks **+** red-teaming under one comparable score | CrowS-Pairs (extractive `pair_pll`) + templated `open_gen` + red-team, all producing standardized effects on one scale. **Scoped 21 Sep 2026 — see "CrowS-Pairs' measured role" below:** the extractive paradigm contributes single-axis descriptives and a not-estimable report, not an intersectional interaction estimate |
 | 3. Statistical rigor protocol | Unchanged and full — FDR, power, cluster bootstrap, sensitivity (§8) |
 | 4. Generative operationalization of emergence | The `open_gen` path + interaction estimator + permutation baseline (§10) |
 | 5. Non-gender × non-gender lattice coverage | Reachable only via `open_gen`/red-team — both in scope; a named gate (§11 P3) |
@@ -84,6 +84,45 @@ maximally *in kind* — extractive sentence log-likelihood vs. templated open ge
 being two similar sentence-pair datasets. Comparability across two maximally different paradigms is a
 **stronger** test of the unification claim than agreement among four similar benchmarks. State it that
 way; it is a design argument, not an apology for scope.
+
+### CrowS-Pairs' measured role, and how RQ1 is scoped by it (21 Sep 2026)
+
+> **⚠ This scoping changes what RQ1 claims and NEEDS HUMAN / SUPERVISOR SIGN-OFF.** It is recorded
+> here, flagged in `CLAUDE.md`, and logged as a pre-registration amendment (§10 of
+> `docs/preregistration.md`). It is not a Claude-side decision.
+
+P2 **measured** what the extractive paradigm can support, on the pinned file, and the number is
+decisive: of 1,352 kept CrowS-Pairs items, **198 attest an order-1 cell and 3 attest an order-2
+cell**. Each item is annotated with exactly one attribute, so an order-2 cell requires a *second*
+identity term present unchanged in *both* sentences — shared context rather than contrast — which
+is rare by construction. The emergence estimator fits order-2 cells only and needs every cell of a
+pair's grid non-empty, so **every confirmatory axis pair comes back `estimable=False`**. The full
+record, with the counts and the exclusion table, is `docs/methods.md` §2.5.
+
+**CrowS-Pairs' role in the confirmatory scope is therefore two things, and neither is an
+intersectional estimate:**
+
+1. **Single-axis calibration.** Its 198 order-1 cells give descriptive `CellStat` rows against
+   which the generation path's single-axis behaviour can be sanity-checked on a published,
+   third-party, minimally-paired instrument.
+2. **Positive evidence that standard sentence-pair benchmarks structurally cannot support
+   intersectional auditing.** This is a *result about the paradigm*, reportable in its own right,
+   and it is the extractive analogue of the P9 field result (`docs/power_and_precision.md`). It is
+   the empirical argument for why intersectional auditing needs a generation path at all — i.e. it
+   supports novelty claim 5 rather than weakening it.
+
+**RQ1 is scoped accordingly.** The cross-paradigm comparison is *generation vs. extraction at the
+single-axis / descriptive level*, **plus** the structural finding above. It is **not** a comparison
+of two intersectional interaction estimates, because the extractive paradigm cannot produce one.
+The effect-vector-plus-agreement machinery (§10) is built, tested and unchanged; it simply has one
+paradigm's interaction slot legitimately empty, with a machine-readable reason attached.
+
+**It must never be reported as a null result about the model.** "CrowS-Pairs shows no intersectional
+effect" would be false: CrowS-Pairs cannot express one. The distinction is the whole point.
+
+Red-teaming (P8) is the **third** source under claim 2, and — unlike the extractive paradigm — it
+reaches arbitrary lattice cells by construction, so it is where the cross-source intersectional
+comparison actually lands.
 
 ### Why the framing constraints matter (rationale for the CLAUDE.md non-negotiables)
 - The *finding* "intersectional bias exists in open-weight LLMs" is published at top venues (LABE/Wan &
@@ -677,7 +716,7 @@ thresholds. The permutation test (B3) is deferred to P9 with the rest of the res
 |-------|----------------|
 | P0 | Fresh clone + `uv sync` → identical env. **Seeding determinism:** `random`, `numpy`, `PYTHONHASHSEED` and a pure-numpy stochastic function reproduce bit-identically under `set_global_seed`. Manifest reconstructs the run. **No `torch` required** — the toy-model check belongs to P5. |
 | P1 | Walking skeleton runs through all interfaces on fake data; schema round-trip + immutability + hashability + order-validator tests pass; **schema field-freeze test** pins the exact field set of every shared record. |
-| P2 | Row counts match published dataset; checksums recorded; 5-item eyeball; every exclusion logged with a reason; screening is deterministic. |
+| P2 | Row counts match published dataset; checksums recorded; 5-item eyeball; every exclusion logged with a reason; screening is deterministic. **Status 20 Sep 2026: MET.** 1,508 rows pinned, 1,352 kept / 156 excluded, every exclusion machine-reasoned. The gate also produced a **measured finding**: 198 order-1 cells and **3 order-2**, so the source cannot estimate an interaction and its confirmatory pairs are all `estimable=False`. That scopes CrowS-Pairs' role to single-axis calibration plus structural evidence about the paradigm (see §1, `docs/methods.md` §2.5) — **a fact about sentence-pair benchmarks, never a null result about the model.** |
 | P3 | Every lattice value traces to a provenance-carrying source via the `AxisValue` registry, and every `IdentityCell` axis pair resolves in it; **≥2 non-gender×non-gender primary cells named**; cell inventory marks powered vs descriptive before any run. Note: with CrowS-Pairs as the only extractive source, these cells are reachable **only** via the templated `open_gen` and red-team paths — this gate cannot be met from extractive items and must not slip. |
 | P4a | Byte-identical prompt regeneration from the same config; 20-prompt manual slot audit of template fills. (Template renderer only — the `ExtractiveRenderer` clause moved to P4b with the §5 split.) |
 | P4b | `ExtractiveRenderer` emits no cell unattested in its source item; byte-identical regeneration from the same config. |
@@ -708,6 +747,13 @@ run it before a full run.
 - **E2 Cross-paradigm comparability** (RQ1): standardized effects → **effect vector + agreement
   statistic; no pooling at k = 2** (§10). A forest-style plot of the two paradigm estimates with CIs
   is the figure; it carries no pooled diamond. Random-effects pooling and I² only if k reaches 3.
+  **SCOPED 21 Sep 2026 by the measured P2 result (§1, `docs/methods.md` §2.5):** the extractive
+  paradigm contributes **single-axis descriptives plus a not-estimable report**, not an
+  intersectional interaction estimate — 3 order-2 items cannot populate a pair's grid. So E2's
+  interaction comparison is **generation vs. red-team** (both reach arbitrary cells), and the
+  generation-vs-extraction comparison is at the single-axis/descriptive level, reported beside the
+  structural finding about what sentence-pair benchmarks can support. The figure states the empty
+  slot and its machine-readable reason; it must never be drawn as an extractive estimate of zero.
 - **Baselines:** B1 single-axis (main effects only); **B2 additive-null — a *presentation* of E1's
   interaction, not an independent baseline (§10)**; **B3 permutation test on the interaction — the
   genuinely independent null.** B1 + B3 are what license the *emergence* claim over "bias exists."

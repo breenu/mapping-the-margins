@@ -38,7 +38,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from margins.schemas import ItemScore
 from margins.scoring.base import TextScorer
-from margins.scoring.config import ScorerSpec
+from margins.scoring.config import PairedProbeCase, ScorerSpec
+from margins.scoring.paired import PairedReduction
 
 __all__ = [
     "MIN_GROUP_FOR_VARIANCE",
@@ -46,6 +47,7 @@ __all__ = [
     "StandardizationReport",
     "signs_from_specs",
     "standardize_within_benchmark",
+    "verify_paired_sign",
     "verify_sign",
 ]
 
@@ -182,6 +184,12 @@ def verify_sign(spec: ScorerSpec, text_scorer: TextScorer) -> None:
         SignContractError: if the probe's harmful text does not score above its benign text.
     """
     probe = spec.sign_probe
+    if probe is None:
+        raise SignContractError(
+            f"scorer {spec.scorer_id!r} declares no text sign_probe. A likelihood scorer is "
+            "checked by `verify_paired_sign`, which needs no model; passing one here would run "
+            "its probe through the wrong kind of instrument."
+        )
     harmful_raw, benign_raw = text_scorer.score_texts([probe.harmful, probe.benign])
     harmful = spec.sign * harmful_raw
     benign = spec.sign * benign_raw
@@ -195,6 +203,79 @@ def verify_sign(spec: ScorerSpec, text_scorer: TextScorer) -> None:
             "would have the wrong sign -- and would look entirely plausible. "
             "Fix `sign` in the roster, or the "
             "probe if the probe is what is wrong."
+        )
+
+
+def verify_paired_sign(spec: ScorerSpec, reduction: PairedReduction) -> None:
+    """Check a paired scorer's declared sign against its own probe. Needs no model.
+
+    The paired counterpart of :func:`verify_sign`, and deliberately a different kind of check. A
+    text probe runs two strings through a real classifier, because what it verifies is that *the
+    instrument* points the way the roster says. A ``pair_pll`` measurement has no instrument: the
+    log-probabilities are the model's, and whether a given model prefers a given sentence is an
+    empirical question with no known answer. A probe that ran a model here would be asserting a
+    finding.
+
+    What can still be wrong is **our arithmetic** -- the subtraction order, the declared sign, the
+    length normalisation -- and that is what this checks: the probe supplies the log-probabilities,
+    the reduction runs, and a scorer that ranks the two cases the wrong way round raises. Because
+    no model is loaded, the check runs on the torch-free core environment and in the core CI job,
+    which is where the sign contract most needs to be enforced.
+
+    Raises:
+        SignContractError: if the probe's harmful case does not score above its benign case.
+    """
+    from margins.schemas import Prompt, Response, TaskType
+
+    probe = spec.paired_sign_probe
+    if probe is None:
+        raise SignContractError(
+            f"scorer {spec.scorer_id!r} declares no paired_sign_probe. A text scorer is checked by "
+            "`verify_sign` against a real instrument."
+        )
+
+    def evaluate(case: PairedProbeCase, label: str) -> float:
+        prompt = Prompt(
+            prompt_id=f"sign-probe::{spec.scorer_id}::{label}",
+            item_id=f"sign-probe::{spec.scorer_id}",
+            cell_id=None,
+            rendered_text="",
+            task_type=TaskType.PAIR_PLL,
+            template_version="sign-probe",
+            decoding_key="sign-probe",
+            rendered_text_stereo=case.stereo,
+            rendered_text_antistereo=case.antistereo,
+        )
+        response = Response(
+            response_id=f"sign-probe::{spec.scorer_id}::{label}",
+            prompt_id=prompt.prompt_id,
+            model_id="sign-probe",
+            model_revision="0" * 40,
+            seed=0,
+            temperature=0.0,
+            decoding_key="sign-probe",
+            decoding_hash="sign-probe",
+            quant="none",
+            text="",
+            logprob_stereo=case.logprob_stereo,
+            logprob_antistereo=case.logprob_antistereo,
+        )
+        return reduction.reduce(response, prompt)
+
+    harmful_raw = evaluate(probe.harmful, "harmful")
+    benign_raw = evaluate(probe.benign, "benign")
+    harmful = spec.sign * harmful_raw
+    benign = spec.sign * benign_raw
+
+    if harmful <= benign:
+        raise SignContractError(
+            f"scorer {spec.scorer_id!r} declares sign={spec.sign:+d}, but its own paired probe "
+            f"comes out the wrong way round: the harmful case scores {harmful:.6g} and the benign "
+            f"case {benign:.6g} after applying the sign (raw {harmful_raw:.6g} vs "
+            f"{benign_raw:.6g}). 'higher = more harm' is violated, so every pair_pll effect would "
+            "have the wrong sign -- and would look entirely plausible. The likely cause is a "
+            "reversed subtraction: `logprob_stereo - logprob_antistereo` is positive when the "
+            "model prefers the STEREOTYPING sequence."
         )
 
 

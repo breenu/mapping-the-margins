@@ -79,6 +79,24 @@ def _decoding(has_chat: bool, **overrides: Any) -> DecodingConfig:
 
 
 def _prompt(index: int = 0, task_type: TaskType = TaskType.OPEN_GEN) -> Prompt:
+    """One prompt of either paradigm.
+
+    Since open decision #7 was resolved (20 Sep 2026) a ``pair_pll`` prompt carries BOTH sequences
+    and an empty ``rendered_text``; the schema refuses any other shape, which is why this helper
+    branches rather than passing ``task_type`` straight through.
+    """
+    if task_type is TaskType.PAIR_PLL:
+        return Prompt(
+            prompt_id=f"crows_pll::axis=value-{index}::crows_pairs-{index:04d}::{index:012d}",
+            item_id=f"crows_pairs::{index:04d}",
+            cell_id=f"axis=value-{index}",
+            rendered_text="",
+            task_type=task_type,
+            template_version="crows_pll_v1@2026-09-20",
+            decoding_key="greedy_v1",
+            rendered_text_stereo="abab",
+            rendered_text_antistereo="aba",
+        )
     return Prompt(
         prompt_id=f"describe::axis=value-{index}::person::{index:012d}",
         item_id="open_gen_templates/describe",
@@ -368,7 +386,7 @@ def test_an_empty_or_single_token_sequence_is_refused(spec: ModelSpec) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# The pair_pll shape (decision #6) and the decision that stays open (#7)
+# The pair_pll shape (decision #6) and the representation that closed with it (#7)
 # --------------------------------------------------------------------------------------
 
 
@@ -397,11 +415,60 @@ def test_a_pair_yields_one_response_carrying_both_logprobs(spec: ModelSpec) -> N
     assert response.text == "", "a likelihood comparison generates no text"
 
 
-def test_run_refuses_paired_prompts_and_names_open_decision_seven(backend: Any) -> None:
-    """#7 stays open by construction: a Prompt holds one string and cannot carry two sequences."""
-    paired = _prompt(task_type=TaskType.PAIR_PLL)
-    with pytest.raises(NotImplementedError, match="OPEN DECISION #7"):
-        backend.run([paired])
+def test_score_pair_reads_the_two_sequences_off_the_prompt(spec: ModelSpec) -> None:
+    """Decision #7 as built: the prompt carries the pair, so the caller need not.
+
+    The explicit-argument form is the same measurement, which is what makes the record's
+    ``rendered_text_stereo``/``antistereo`` the single source of truth rather than a second one.
+    """
+    from margins.inference.backend import HFBackend
+
+    backend = HFBackend(
+        spec,
+        _decoding(has_chat=False),
+        seed=SEED,
+        quant="none",
+        model=_StubModel(),
+        tokenizer=_StubTokenizer(),
+    )
+    prompt = _prompt(task_type=TaskType.PAIR_PLL)
+
+    from_prompt = backend.score_pair(prompt)
+    explicit = backend.score_pair(prompt, stereo_text="abab", antistereo_text="aba")
+
+    assert from_prompt.logprob_stereo == explicit.logprob_stereo
+    assert from_prompt.logprob_antistereo == explicit.logprob_antistereo
+
+
+def test_score_pair_refuses_half_a_pair(spec: ModelSpec) -> None:
+    """A pair whose halves come from different places is not a pair."""
+    from margins.inference.backend import HFBackend
+
+    backend = HFBackend(
+        spec,
+        _decoding(has_chat=False),
+        seed=SEED,
+        quant="none",
+        model=_StubModel(),
+        tokenizer=_StubTokenizer(),
+    )
+    with pytest.raises(ValueError, match="one sequence but not the other"):
+        backend.score_pair(_prompt(task_type=TaskType.PAIR_PLL), stereo_text="abab")
+
+
+def test_run_routes_paired_prompts_to_the_logprob_path(backend: Any) -> None:
+    """Open decision #7 is CLOSED: run() no longer refuses a paired prompt, it scores it."""
+    responses = backend.run([_prompt(task_type=TaskType.PAIR_PLL)])
+
+    assert len(responses) == 1
+    assert responses[0].is_paired
+    assert responses[0].text == "", "a likelihood comparison generates no text"
+
+
+def test_run_refuses_a_mixed_batch(backend: Any) -> None:
+    """The two paradigms run under different decoding profiles; this backend holds one."""
+    with pytest.raises(ValueError, match="Split the call"):
+        backend.run([_prompt(), _prompt(task_type=TaskType.PAIR_PLL)])
 
 
 def test_run_generates_for_open_gen(backend: Any) -> None:

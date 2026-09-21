@@ -1,0 +1,59 @@
+# The decoding profile the EXTRACTIVE vertical stamps on every paired prompt (P2/P4b).
+#
+# Plain YAML -> dict -> validated DecodingConfig (PROJECT_CONTEXT.md §6). The backend refuses to
+# run a prompt whose `decoding_key` does not equal `key` below, so the name and the profile cannot
+# drift apart.
+#
+# WHY A SCORING PROFILE EXISTS AT ALL. Almost nothing here is used to generate: a `pair_pll`
+# measurement runs two forward passes and reads log-probabilities, so `do_sample`, `temperature`,
+# `top_p`/`top_k`, `repetition_penalty` and `max_new_tokens` never influence a token choice. What
+# the profile does carry is `prompt_format`, which changes the measured number outright, and it
+# carries it into `decoding_hash` -- which is on every Response, which is what makes a paired
+# response self-describing. Reusing `greedy_v1` instead would have recorded a chat-template
+# wrapper that the log-probability path does not apply, i.e. a Response describing something that
+# did not happen.
+
+key: pll_v1
+
+description: >-
+  Whole-sequence autoregressive log-likelihood scoring for the extractive (`pair_pll`) paradigm.
+  No text is generated: the two sequences of a pair are each scored in one forward pass and their
+  total log-probabilities land on a single Response as `logprob_stereo` / `logprob_antistereo`.
+
+# CONSTRUCT CHOICE, decided 20 Sep 2026 -- and the one field in this file that changes the number.
+#
+# `raw`, NOT `chat`. CrowS-Pairs log-likelihood is computed on the bare sentence in the literature,
+# and scoring the bare sentence is what keeps our figure comparable to published work. Wrapping it
+# in an instruct model's chat template would put the wrapper's tokens inside every sequence
+# log-probability and make the per-model template part of the measurement -- the same sentence
+# would score differently under Llama and Mistral for reasons that have nothing to do with bias.
+#
+# The cost is stated rather than hidden: the two paradigms therefore see the model through
+# DIFFERENT interfaces. The generation path wraps (its prompts are instructions and the checkpoints
+# are instruct-tuned); this path does not (its sequences are declarative sentences, not requests).
+# That asymmetry is a property of the paradigms, not an inconsistency, and `docs/methods.md` says
+# so where a reader will find it.
+prompt_format: raw
+
+# Unused on this path -- `prompt_format: raw` applies no template, so no date is injected -- but
+# DecodingConfig requires the field, and recording the same pinned date as the generation profile
+# keeps the two comparable rather than leaving a null that reads as "unknown".
+pinned_chat_date: "08 Sep 2026"
+
+# CrowS-Pairs sentences are single sentences; 512 is far above the longest. Recorded because a
+# truncated sequence would have a silently different log-probability.
+max_input_tokens: 512
+
+# A forward pass chooses no tokens, so these describe nothing that happens. They are here because
+# DecodingConfig is the sole authority on token choice and refuses a profile that is neither
+# cleanly greedy nor cleanly sampled -- and because a Response must not carry a temperature its run
+# never used. Cleanly greedy is the honest encoding of "no sampling occurred".
+do_sample: false
+temperature: 0.0
+
+# Minimum the schema allows. Nothing is generated; `sequence_logprob` never reads this field.
+max_new_tokens: 1
+
+# 1.0 = no penalty. Recorded explicitly rather than inherited from the checkpoint's bundled
+# generation_config, for the same reason the generation profile records it.
+repetition_penalty: 1.0

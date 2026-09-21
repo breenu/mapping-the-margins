@@ -10,8 +10,11 @@ retrofitted later:
    particular ``quant`` records what the load ACTUALLY did, so a Windows unquantized fallback is
    never mistaken for the Linux NF4 constant.
 2. **Both measurement paths.** ``generate`` for ``open_gen`` (the MVP path, where RQ2 lives) and
-   ``sequence_logprob`` for sequence log-likelihood. The log-prob path is built now because it is
-   cheap now; it is exercised for real at P2, when CrowS-Pairs supplies paired items.
+   ``sequence_logprob`` for sequence log-likelihood, which P2 exercises for real with CrowS-Pairs.
+   The log-prob path scores the **raw** sequence: no chat template is applied, which is how
+   CrowS-Pairs log-likelihood is computed in the literature and what keeps the figure comparable
+   to published work. That is a construct choice, recorded in ``configs/decoding/pll_v1.yaml`` and
+   folded into ``decoding_hash`` rather than left as an accident of which code path ran.
 3. **A determinism claim that is scoped honestly.** Same seed and greedy decoding give identical
    token sequences *at a fixed thread count and batch size*, on the recorded torch version and BLAS
    backend. Nothing here claims unconditional bit-identity, and
@@ -22,12 +25,12 @@ retrofitted later:
 must import cleanly on the core environment so that ``mypy src``, ``ruff`` and the non-inference
 test suite all run on a machine with no model stack, exactly as :mod:`margins.repro` already does.
 
-**Open decision #7 stays open, by construction.** ``Prompt.rendered_text`` is a single string and
-cannot carry the two sequences a ``pair_pll`` response needs. :meth:`HFBackend.run` therefore
-*refuses* a ``pair_pll`` prompt and names the decision, while :meth:`HFBackend.score_pair` builds
-the measurement shape decision #6 settled -- one ``Response`` carrying both sequence log-probs. The
-shape is wired; the representation question is untouched and must be answered before the
-CrowS-Pairs loader, not after.
+**Open decision #7 is CLOSED (20 Sep 2026, with P2/P4b).** A ``pair_pll`` prompt carries both
+sequences on one record -- ``rendered_text_stereo`` / ``rendered_text_antistereo`` -- mirroring
+decision #6's one ``Response`` carrying both sequence log-probs. :meth:`HFBackend.run` no longer
+refuses a paired prompt; it routes it to :meth:`HFBackend.score_pairs`. What it *does* refuse is a
+**mixed** call, because the two paradigms run under different decoding profiles and this backend
+holds one.
 """
 
 from __future__ import annotations
@@ -602,13 +605,36 @@ class HFBackend:
             token_logprobs=values, total=float(sum(values)), n_tokens=len(values)
         )
 
+    @staticmethod
+    def _pair_sequences(
+        prompt: Prompt, stereo_text: str | None, antistereo_text: str | None
+    ) -> tuple[str, str]:
+        """The two sequences to score: the caller's if given, otherwise the prompt's own."""
+        given = (stereo_text is not None, antistereo_text is not None)
+        if any(given) and not all(given):
+            raise ValueError(
+                f"score_pair({prompt.prompt_id!r}) was given one sequence but not the other. A "
+                "pair whose halves come from different places is not a pair: pass both, or pass "
+                "neither and let them be read off the prompt."
+            )
+        if stereo_text is not None and antistereo_text is not None:
+            return stereo_text, antistereo_text
+        if prompt.rendered_text_stereo is None or prompt.rendered_text_antistereo is None:
+            raise ValueError(
+                f"prompt {prompt.prompt_id!r} is pair_pll but carries no sequences. Since open "
+                "decision #7 was resolved (20 Sep 2026) a paired prompt carries both on the "
+                "record; this one does not, so it was built outside ExtractiveRenderer."
+            )
+        return prompt.rendered_text_stereo, prompt.rendered_text_antistereo
+
     def score_pair(
         self,
         prompt: Prompt,
         *,
-        stereo_text: str,
-        antistereo_text: str,
+        stereo_text: str | None = None,
+        antistereo_text: str | None = None,
         seed: int | None = None,
+        sample_index: int = 0,
         prefix: str | None = None,
     ) -> Response:
         """Score a sentence pair into **one** :class:`~margins.schemas.Response`.
@@ -618,12 +644,20 @@ class HFBackend:
         stereotyping sequence -- higher = more harm, matching the standardization rule. Reversing
         the two arguments silently flips the sign of every ``pair_pll`` effect.
 
-        The *shape* is wired here; the two sequences are passed in explicitly because
-        ``Prompt.rendered_text`` cannot carry them. That is **open decision #7**, and it stays open:
-        this method does not encode a representation, it takes the strings from its caller. P2's
-        CrowS-Pairs loader is where the representation must be settled.
+        **Open decision #7 was resolved on 20 Sep 2026**, so the two sequences now ride on the
+        prompt itself as ``rendered_text_stereo`` / ``rendered_text_antistereo`` and are read from
+        there by default. The explicit arguments survive for tests and for a caller holding
+        sequences from somewhere else; passing one without the other raises, because a pair whose
+        halves come from different places is not a pair.
+
+        ``sample_index`` is a parameter rather than a hard-coded 0 because the resumable harness
+        computes every ``response_id`` up front from ``(prompt, seed, sample_index)`` and then
+        checks what the backend produced against that plan. A backend that always stamped 0 would
+        fail that check for every seed after the first -- silently, as an id mismatch rather than
+        as a wrong number.
         """
         self._check_prompt(prompt, expect=TaskType.PAIR_PLL)
+        stereo_text, antistereo_text = self._pair_sequences(prompt, stereo_text, antistereo_text)
         effective_seed = self._seed if seed is None else seed
         report = self.load_report
 
@@ -637,7 +671,7 @@ class HFBackend:
                 model_id=self._spec.model_id,
                 revision=self._spec.revision,
                 seed=effective_seed,
-                sample_index=0,
+                sample_index=sample_index,
                 decoding_hash=self._decoding.decoding_hash,
             ),
             prompt_id=prompt.prompt_id,
@@ -658,22 +692,41 @@ class HFBackend:
 
     # ---------------------------------------------------------------- the Protocol
 
-    def run(self, prompts: Sequence[Prompt]) -> list[Response]:
-        """Generate responses (the ``InferenceBackend`` Protocol).
+    def score_pairs(
+        self, prompts: Sequence[Prompt], *, seed: int | None = None, sample_index: int = 0
+    ) -> list[Response]:
+        """Score paired prompts, one :class:`Response` per prompt.
 
-        ``pair_pll`` is refused rather than half-implemented. ``Prompt.rendered_text`` is a single
-        string and cannot carry the two sequences a paired response needs -- that is **open decision
-        #7**, and it must be answered by the CrowS-Pairs loader (P2/P4b), not guessed at here. Use
-        :meth:`score_pair` once a caller has both sequences.
+        Deliberately not batched. ``sequence_logprob`` is one forward pass per sequence, and
+        batching would require padding -- which changes reduction order and therefore the
+        log-probabilities, for no gain on inputs this short. The determinism note already scopes
+        bit-identity to a fixed batch size; here there is nothing to fix.
+        """
+        return [self.score_pair(prompt, seed=seed, sample_index=sample_index) for prompt in prompts]
+
+    def run(self, prompts: Sequence[Prompt]) -> list[Response]:
+        """Run prompts of either paradigm (the ``InferenceBackend`` Protocol).
+
+        **Open decision #7 was resolved on 20 Sep 2026**, and this method is where that shows.
+        ``pair_pll`` used to be refused here, because ``Prompt.rendered_text`` is one string and
+        cannot carry two sequences; a paired prompt now carries both on the record as
+        ``rendered_text_stereo`` / ``rendered_text_antistereo``, mirroring decision #6's one
+        ``Response`` carrying both log-probabilities. So paired prompts route to
+        :meth:`score_pairs` and generative ones to :meth:`generate`.
+
+        A **mixed** sequence is refused. The two paradigms need different decoding profiles -- the
+        extractive one scores raw sequences under ``pll_v1``, the generative one wraps prompts in a
+        chat template under ``greedy_v1``/``sampled_v1`` -- and this backend holds exactly one
+        profile, so a mixed batch could only be run by ignoring that mismatch for half of it.
         """
         paired = [p for p in prompts if p.task_type is TaskType.PAIR_PLL]
-        if paired:
-            raise NotImplementedError(
-                f"{len(paired)} pair_pll prompt(s) passed to run(), e.g. {paired[0].prompt_id!r}. "
-                "Prompt.rendered_text is ONE string and cannot carry the two sequences a pair_pll "
-                "response needs: that is OPEN DECISION #7 (paired-task prompt representation), "
-                "which is deliberately unanswered. The scoring shape is settled (decision #6) and "
-                "implemented in HFBackend.score_pair, which takes both sequences from its caller. "
-                "Settle #7 with the CrowS-Pairs loader before routing paired prompts through run()."
+        if paired and len(paired) != len(prompts):
+            raise ValueError(
+                f"run() was given {len(paired)} pair_pll prompt(s) and "
+                f"{len(prompts) - len(paired)} of other task types. The two paradigms are scored "
+                "under different decoding profiles and this backend holds one, so a mixed call "
+                "could only proceed by ignoring the mismatch for half of them. Split the call."
             )
+        if paired:
+            return self.score_pairs(prompts)
         return self.generate(prompts)

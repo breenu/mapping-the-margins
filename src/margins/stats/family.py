@@ -164,6 +164,60 @@ class FamilyPlan:
             )
 
 
+def _spanned_groups(
+    groups: Sequence[tuple[str, str, str]], family_benchmarks: Sequence[str]
+) -> list[tuple[str, str, str]]:
+    """The ``(benchmark, model, harm_type)`` cells the family covers.
+
+    ``groups`` is what P7 **attempted** (from ``fit_reports``, which exist whether or not a pair
+    was estimable), not what it managed to estimate. Each source therefore brings its own harm
+    types: the generative paradigm's are ``toxicity``/``regard`` and the extractive one's is
+    ``stereotype_preference``, and crossing every declared benchmark with every observed harm type
+    would invent members -- an ``(open_gen_templates, stereotype_preference)`` test that no stage
+    ever ran -- and then raise because they never arrived.
+
+    With no declared benchmarks this is exactly the observed groups: the pre-P2 behaviour, kept so
+    a fixture config need not name sources it does not have.
+
+    With declared benchmarks, membership is checked in **both** directions:
+
+    * a declared source that P7 never attempted **raises**, which is the hole P2 closed. Previously
+      the expected set was built from the offered effects, so an entire absent source was
+      undetectable and P9 would quietly correct over a smaller family -- i.e. make MORE
+      discoveries -- on a pre-registered ``family_size`` that was really a function of which files
+      were on disk;
+    * an attempted source that is not declared **raises** too, because a source corrected inside a
+      family that never announced it inflates the realized false discovery rate in exactly the same
+      way that correcting a subset does.
+    """
+    if not family_benchmarks:
+        return sorted(set(groups))
+
+    declared = tuple(dict.fromkeys(family_benchmarks))
+    attempted = sorted({g[0] for g in groups})
+
+    undeclared = [b for b in attempted if b not in declared]
+    if undeclared:
+        raise ValueError(
+            f"P7 reports fits for benchmark(s) {undeclared} that `family_benchmarks` does not "
+            f"declare (declared: {list(declared)}). A source corrected inside a family that never "
+            "announced it inflates the realized false discovery rate exactly as correcting a "
+            "subset does. Declare it in configs/stats/, as a logged pre-registration amendment."
+        )
+
+    absent = [b for b in declared if b not in attempted]
+    if absent:
+        raise ValueError(
+            f"`family_benchmarks` declares {absent}, but the metrics directory contains no fit "
+            f"report for it (attempted: {attempted}). The pre-registered family spans that source, "
+            "so correcting without it would apply a Benjamini-Hochberg threshold computed over a "
+            "SMALLER family than was declared. Run P7 for that source, or amend the declaration "
+            "-- which is a logged pre-registration decision, not a config tweak."
+        )
+
+    return sorted(g for g in set(groups) if g[0] in declared)
+
+
 def build_family_plan(
     designs: Sequence[PairDesign],
     *,
@@ -177,16 +231,26 @@ def build_family_plan(
     Args:
         designs: every pair design, confirmatory and exploratory alike.
         lattice_config: supplies which pairs are confirmatory. **The single source.**
-        groups: the ``(benchmark, model, harm_type)`` combinations the family spans.
-        settings: which terms of a pair enter.
+        groups: the ``(benchmark, model, harm_type)`` combinations observed in the estimates.
+        settings: which terms of a pair enter, and which benchmarks the family spans.
         not_estimable: ``series -> reason`` from P7, for pairs that could not be fitted.
+
+    **The benchmark dimension is DECLARED, not observed** (P2). ``groups`` comes from the effects
+    that arrived, so using its benchmark component alone made ``family_size`` a function of which
+    parquet files were on disk -- and made the subset guard structurally unable to notice that a
+    whole source never showed up. When ``settings.family_benchmarks`` is non-empty, the family is
+    enumerated over *those* sources crossed with the observed ``(model, harm_type)`` combinations,
+    so a declared benchmark that produced nothing raises through
+    :meth:`FamilyPlan.validate` instead of silently shrinking the family.
     """
     confirmatory = frozenset(lattice_config.confirmatory_pairs)
     exploratory = frozenset(lattice_config.exploratory_pairs)
     excuses = dict(not_estimable or {})
 
+    spans = _spanned_groups(groups, settings.family_benchmarks)
+
     members: list[FamilyMember] = []
-    for benchmark, model_id, harm_type in groups:
+    for benchmark, model_id, harm_type in spans:
         for design in designs:
             if design.axis_pair not in confirmatory:
                 continue

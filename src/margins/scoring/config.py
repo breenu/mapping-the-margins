@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 __all__ = [
     "CONTROL_FAMILIES",
     "DEFAULT_SCORING",
+    "LIKELIHOOD_MECHANISMS",
     "MIN_SCORERS_PER_HARM",
     "SCORER_INPUT_PREFIX",
     "SCORING_INPUT_KEY",
@@ -46,6 +47,8 @@ __all__ = [
     "LexiconPin",
     "Mechanism",
     "ModelPin",
+    "PairedProbeCase",
+    "PairedSignProbe",
     "ScorerSpec",
     "ScoringConfig",
     "SignProbe",
@@ -68,7 +71,29 @@ SCORER_INPUT_PREFIX: Final[str] = "scorer:"
 #: How a scorer decides. The distinction is load-bearing, not descriptive: two scorers for one harm
 #: type must not share a mechanism, because that is what "independent" means here. A transformer and
 #: a wordlist fail differently; two transformers fail together and agree while doing it.
-Mechanism = Literal["neural_classifier", "lexicon"]
+#:
+#: The two likelihood mechanisms arrived with P2 and are a different KIND of scorer. A `pair_pll`
+#: measurement has no external instrument at all: the number is the model's own sequence
+#: log-probability difference, so there is no classifier to be wrong. What can still be wrong is the
+#: REDUCTION from two log-probabilities to one score, and the two reductions here fail differently
+#: -- `sequence_likelihood` sums, so it inherits the well-documented length and token-frequency
+#: confound of raw PLL, while `length_normalized_likelihood` divides that out and in exchange
+#: over-corrects when the two members differ in length for reasons unrelated to the swap.
+#: Triangulating them is therefore not a formality: their disagreement is exactly a length
+#: confound, which is the failure mode the CrowS-Pairs literature warns about.
+Mechanism = Literal[
+    "neural_classifier",
+    "lexicon",
+    "sequence_likelihood",
+    "length_normalized_likelihood",
+]
+
+#: Mechanisms that read a paired log-probability off the record rather than scoring text. They
+#: carry NO pin: their instrument is the model under test, which is pinned per run by
+#: :class:`~margins.inference.models.ModelSpec` and recorded on every ``Response``.
+LIKELIHOOD_MECHANISMS: Final[frozenset[str]] = frozenset(
+    {"sequence_likelihood", "length_normalized_likelihood"}
+)
 
 #: The two families of known-neutral text the drift control scores (section 9).
 #:
@@ -111,6 +136,43 @@ class SignProbe(BaseModel):
 
     harmful: str = Field(min_length=1, description="Text the scorer must rate as MORE harmful.")
     benign: str = Field(min_length=1, description="Text the scorer must rate as LESS harmful.")
+
+
+class PairedProbeCase(BaseModel):
+    """One synthetic paired measurement, with the log-probabilities already decided."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    stereo: str = Field(min_length=1, description="The more-stereotyping sequence.")
+    antistereo: str = Field(min_length=1, description="Its minimally different counterpart.")
+    logprob_stereo: float
+    logprob_antistereo: float
+
+
+class PairedSignProbe(BaseModel):
+    """Two synthetic paired measurements whose relative harm is not in dispute.
+
+    The paired counterpart of :class:`SignProbe`, and deliberately a different shape. A text probe
+    runs two strings through a real classifier, because what it checks is that *the instrument*
+    points the way the roster says. A paired scorer has no instrument: the log-probabilities are
+    the model's, and whether a given model prefers a given sentence is an empirical question with
+    no known answer, so a probe that ran a model would be asserting a finding rather than checking
+    a wiring.
+
+    What CAN be wrong here is our arithmetic -- the subtraction order, the sign, the length
+    normalisation -- and that is exactly what this probe fixes: log-probabilities are supplied, the
+    reduction is run, and a scorer that ranks the two cases the wrong way round fails. It needs no
+    model, so the check runs on the torch-free core environment and in the core CI job.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    harmful: PairedProbeCase = Field(
+        description="The model clearly prefers the stereotyping sequence. Must score HIGHER."
+    )
+    benign: PairedProbeCase = Field(
+        description="The model clearly prefers the anti-stereotypical sequence. Must score LOWER."
+    )
 
 
 class ModelPin(BaseModel):
@@ -222,10 +284,20 @@ class ScorerSpec(BaseModel):
             "precision/recall. Never used to produce `standardized`, which stays continuous."
         )
     )
-    sign_probe: SignProbe
+    sign_probe: SignProbe | None = Field(
+        default=None, description="Required for a text scorer; forbidden for a likelihood one."
+    )
+    paired_sign_probe: PairedSignProbe | None = Field(
+        default=None, description="Required for a likelihood scorer; forbidden for a text one."
+    )
 
     model_pin: ModelPin | None = None
     lexicon_pin: LexiconPin | None = None
+
+    @property
+    def reads_logprobs(self) -> bool:
+        """True for a scorer that reads a paired log-probability instead of scoring text."""
+        return self.mechanism in LIKELIHOOD_MECHANISMS
 
     @model_validator(mode="after")
     def _mechanism_matches_its_pin(self) -> ScorerSpec:
@@ -237,10 +309,46 @@ class ScorerSpec(BaseModel):
             raise ValueError(
                 f"scorer {self.scorer_id!r} is a lexicon scorer but has no lexicon_pin"
             )
+        if self.reads_logprobs and (self.model_pin is not None or self.lexicon_pin is not None):
+            # Stated rather than tolerated. A likelihood scorer's instrument is the model under
+            # test, pinned per run by ModelSpec and recorded on every Response; a second pin here
+            # would claim the scorer is pinned to something it does not read.
+            raise ValueError(
+                f"scorer {self.scorer_id!r} uses mechanism {self.mechanism!r}, which reads the "
+                "model's own log-probabilities and therefore carries NO pin of its own. Its "
+                "instrument is the model under test, pinned by ModelSpec and recorded on every "
+                "Response."
+            )
         if self.model_pin is not None and self.lexicon_pin is not None:
             raise ValueError(
                 f"scorer {self.scorer_id!r} declares both a model_pin and a lexicon_pin. A scorer "
                 "has one mechanism, and the manifest records one pin per scorer_id."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _every_scorer_has_the_right_sign_probe(self) -> ScorerSpec:
+        """A sign that is asserted is not a sign that is checked (section 8).
+
+        Every scorer declares a probe, and which KIND it declares follows from its mechanism: a
+        text scorer's polarity is a property of an instrument and is probed by running it, a
+        likelihood scorer's is a property of our arithmetic and is probed without a model.
+        """
+        wanted, forbidden, wanted_name = (
+            (self.paired_sign_probe, self.sign_probe, "paired_sign_probe")
+            if self.reads_logprobs
+            else (self.sign_probe, self.paired_sign_probe, "sign_probe")
+        )
+        if wanted is None:
+            raise ValueError(
+                f"scorer {self.scorer_id!r} (mechanism {self.mechanism!r}) declares no "
+                f"{wanted_name}. A `sign` field alone is an assertion; the probe is what makes it "
+                "falsifiable."
+            )
+        if forbidden is not None:
+            raise ValueError(
+                f"scorer {self.scorer_id!r} declares both a sign_probe and a paired_sign_probe. "
+                "It has one mechanism, so exactly one of them can be run against it."
             )
         return self
 
@@ -263,7 +371,12 @@ class ScorerSpec(BaseModel):
                 self.lexicon_pin.version,
                 self.lexicon_pin.sha256,
             )
-        else:  # pragma: no cover - unreachable: _mechanism_matches_its_pin requires one.
+        elif self.reads_logprobs:
+            # No pin of its own, by design: the instrument is the model under test. A literal
+            # rather than an empty tuple so this case is distinguishable in the preimage from a
+            # hypothetical unpinned scorer, which the validators make unreachable.
+            pin = ("model-under-test",)
+        else:  # pragma: no cover - unreachable: _mechanism_matches_its_pin requires a pin.
             pin = ()
         payload = json.dumps(
             [self.scorer_id, self.harm_type, self.mechanism, self.sign, self.threshold, pin],

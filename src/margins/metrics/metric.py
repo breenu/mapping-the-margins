@@ -131,20 +131,38 @@ class EmergenceMetric:
         result = EmergenceResult()
 
         model_rows = [s for s in scores if s.condition == "model"]
-        result.n_skipped_rows = len(scores) - len(model_rows)
-        if not model_rows:
+
+        # A NULL cell_id is a legal, documented state on the shared record -- "None where a source
+        # attests no identity cell" -- and it is skipped, not refused.
+        #
+        # It first arose at P2. The generation vertical injects a cell into every prompt, so every
+        # row it produces has one; the extractive vertical DERIVES the cell from its source item,
+        # and most CrowS-Pairs items attest no lattice value at all (their descriptors are not
+        # lattice values, or their category has no lattice axis). Those rows are real measurements
+        # of real sentence pairs that the lattice simply cannot place.
+        #
+        # Counting them beside the drift-control rows is the honest handling: they are reported in
+        # `n_skipped_rows`, and the coverage report says why. Raising instead would have made an
+        # expected property of the second paradigm look like a data error, and would have taken
+        # the whole run down -- including the open_gen rows in the same file.
+        placeable = [s for s in model_rows if s.cell_id is not None]
+        result.n_skipped_rows = len(scores) - len(placeable)
+        if not placeable:
             raise ValueError(
-                "no model-condition rows to fit; the drift series is fitted separately"
+                "no model-condition rows with a cell to fit; the drift series is fitted separately,"
+                " and rows whose source attests no identity cell cannot enter a design matrix"
             )
 
         by_cell = {cell.cell_id: cell for cell in cells}
-        unknown = sorted({str(s.cell_id) for s in model_rows if s.cell_id not in by_cell})
+        unknown = sorted({str(s.cell_id) for s in placeable if s.cell_id not in by_cell})
         if unknown:
             raise KeyError(
                 f"{len(unknown)} score row(s) reference cells not in the lattice passed in, e.g. "
                 f"{unknown[:3]}. The metric resolves cell_id -> axes through `cells`; a row it "
-                "cannot place cannot be fitted."
+                "cannot place cannot be fitted. (A NULL cell_id is different and is skipped: it "
+                "means the source attests no cell, not that it names an unknown one.)"
             )
+        model_rows = placeable
 
         designs = pair_designs(cells)
         groups = sorted({(s.benchmark, s.model_id, s.harm_type) for s in model_rows})

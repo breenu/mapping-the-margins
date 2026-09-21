@@ -101,6 +101,11 @@ DEFAULT_METRICS_NAME: Final[str] = "emergence_v1"
 #: the same import-cycle reason as the four above.
 DEFAULT_STATS_NAME: Final[str] = "confirmatory_v1"
 
+#: Default extractive-benchmark config name. A literal for the same import-cycle reason as the
+#: five above; ``tests/test_crows_loader.py`` pins it against
+#: ``margins.benchmarks.config.DEFAULT_BENCHMARK``.
+DEFAULT_BENCHMARK_NAME: Final[str] = "crows_pairs_v1"
+
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -192,6 +197,19 @@ class ExperimentConfig(BaseModel):
         default=DEFAULT_STATS_NAME,
         min_length=1,
         description="Stats config name; its sha256 is recorded in the manifest inputs.",
+    )
+
+    # Added at P2 (the EXTRACTIVE vertical). `_name` suffix once more: `configs/benchmark/` is a
+    # Hydra config GROUP. Unlike the five above it is OPTIONAL and defaults to None, because most
+    # runs ingest no benchmark at all -- the generation vertical never touches one, and a run that
+    # named a source it did not read would put a checksum in the manifest for a file it never
+    # opened. `scripts/build_crows_items.py` sets it.
+    benchmark_name: str | None = Field(
+        default=None,
+        description=(
+            "Extractive benchmark config name, or None for runs that ingest no benchmark. Its "
+            "sha256, and the pinned source file's, are recorded in the manifest inputs."
+        ),
     )
 
     # Open decision #2 was settled at P5 (9 Sep 2026), but these stay optional and are populated

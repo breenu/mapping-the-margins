@@ -50,7 +50,10 @@ from margins.scoring.export import (
     read_scores,
 )
 
-BENCHMARK = "open_gen_templates"
+#: The generation vertical's source label. A DEFAULT rather than a constant since P2: the
+#: extractive vertical fits under `crows_pairs`, and the metric layer groups by benchmark, so a
+#: hard-coded label here would have mislabelled every extractive fit in the run record.
+DEFAULT_BENCHMARK_LABEL = "open_gen_templates"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--drift", type=Path, default=DEFAULT_SCORING_DIR / DRIFT_FILENAME)
     parser.add_argument("--metrics", default=DEFAULT_METRICS, help="Metrics config name.")
     parser.add_argument("--lattice", default=DEFAULT_LATTICE)
+    parser.add_argument(
+        "--benchmark",
+        default=DEFAULT_BENCHMARK_LABEL,
+        help="Source label recorded in the run manifest's metrics block.",
+    )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_METRICS_DIR)
     parser.add_argument("--results-dir", type=Path, default=None)
     parser.add_argument("--config-dir", type=Path, default=None)
@@ -161,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         metrics=metrics_record(
             config,
             metrics_name=args.metrics,
-            benchmark=BENCHMARK,
+            benchmark=args.benchmark,
             min_cell_n=min_cell_n,
             n_pairs=len({(r.axis_a, r.axis_b) for r in result.fit_reports}),
             n_effects=len(result.effects),

@@ -23,14 +23,17 @@ would destroy the within-cell variance E4's sensitivity analysis measures and th
 resamples. Aggregation across seeds is the METRIC layer's job (P7). This module's contract is
 one row in, one row out, per scorer, and a test pins it.
 
-TODO(P2): this is where the paired path will diverge. A ``pair_pll`` response carries no text worth
-scoring -- the measurement is already on the record as
-:attr:`~margins.schemas.Response.stereo_preference` (``logprob_stereo - logprob_antistereo``,
-positive when the model prefers the stereotyping sequence, per open decision 6). A ``PairedScorer``
-will read that property instead of calling :meth:`TextScorer.score_texts`, and will standardize it
-through the same function with ``sign=+1``. **Nothing is implemented here**: open decision 7 --
-how a paired prompt is *represented* -- is still open, and the extractive vertical rides with
-P2/P4b.
+**The paired path diverges in :mod:`margins.scoring.paired` (P2, 20 Sep 2026).** A ``pair_pll``
+response carries no text worth scoring -- the measurement is already on the record as
+:attr:`~margins.schemas.Response.stereo_preference` -- so ``PairedScorer`` reads that property
+instead of calling :meth:`TextScorer.score_texts`, and standardizes it through the same function
+with ``sign=+1``. The two scorers have the same surface (:class:`RosterScorer`), so a
+``Triangulator`` holds them interchangeably and the second paradigm joins on the shared record
+rather than on a second code path.
+
+The refusal in :meth:`ResponseScorer.score` therefore stays, and gains a mirror image: a text
+scorer refuses a paired record, a paired scorer refuses a generated one. Either way round, scoring
+the wrong shape would produce a plausible number that means nothing.
 """
 
 from __future__ import annotations
@@ -42,7 +45,35 @@ from margins.schemas import Condition, ItemScore, Prompt, Response
 from margins.scoring.config import ScorerSpec
 from margins.scoring.ids import make_score_id
 
-__all__ = ["ResponseScorer", "TextScorer", "scorer_from_spec"]
+__all__ = ["ResponseScorer", "RosterScorer", "TextScorer", "scorer_from_spec"]
+
+
+@runtime_checkable
+class RosterScorer(Protocol):
+    """What a :class:`~margins.scoring.triangulate.Triangulator` needs from a roster scorer.
+
+    Satisfied by :class:`ResponseScorer` and by
+    :class:`~margins.scoring.paired.PairedScorer`. It exists so the triangulator, the
+    standardization pass and the agreement analysis are written once against a shape rather than
+    twice against two classes -- which is the same argument the shared record schema makes at the
+    pipeline level: comparability comes from a common contract, not from downstream branching.
+    """
+
+    @property
+    def scorer_id(self) -> str: ...
+
+    @property
+    def harm_type(self) -> str: ...
+
+    @property
+    def spec(self) -> ScorerSpec: ...
+
+    @property
+    def condition(self) -> Condition: ...
+
+    def for_condition(self, condition: Condition) -> RosterScorer: ...
+
+    def score(self, responses: Sequence[Response]) -> list[ItemScore]: ...
 
 
 @runtime_checkable
@@ -213,10 +244,25 @@ def scorer_from_spec(
 
         root = Path(str(data_dir)) if data_dir is not None else Path("data")
         text_scorer: TextScorer = build_lexicon_scorer(spec, data_dir=root)
-    else:
+    elif spec.mechanism == "neural_classifier":
         from margins.scoring.hf_classifier import HFClassifierScorer
 
         text_scorer = HFClassifierScorer(spec)
+    elif spec.reads_logprobs:
+        raise ValueError(
+            f"scorer {spec.scorer_id!r} has mechanism {spec.mechanism!r}, which reads paired "
+            "log-probabilities rather than scoring text. Build it with "
+            "`margins.scoring.paired.paired_scorer_from_spec`."
+        )
+    else:
+        # EXHAUSTIVE on purpose. This was an `else` that built an HFClassifierScorer, so any new
+        # Mechanism value was silently routed to the transformer branch and would have scored text
+        # through a classifier the roster never named -- producing plausible numbers under the
+        # wrong instrument. A new mechanism must now be wired here deliberately.
+        raise ValueError(
+            f"scorer {spec.scorer_id!r} has unhandled mechanism {spec.mechanism!r}. Add a branch "
+            "here rather than letting it fall through to another mechanism's builder."
+        )
 
     return ResponseScorer(
         spec,

@@ -1,0 +1,81 @@
+# A hand-built benchmark config over the 7-row eyeball fixture (P2 tests).
+#
+# Every row exists to exercise one path through the screen, so the expected outcomes can be
+# asserted individually rather than as a count:
+#
+#   0  race-color, stereo,      minimal, "black"/"white"        -> order-1 race_ethnicity=Black
+#   1  race-color, ANTISTEREO,  minimal, "white"/"Black"        -> sent_stereo is sent_LESS
+#   2  gender,     stereo,      minimal, shared "Black"         -> ORDER-2 race x gender
+#   3  socioeconomic, stereo,   minimal, "poor"/"rich"          -> kept, NO CELL (not lattice values)
+#   4  religion,   stereo,      minimal                         -> kept, OUT OF LATTICE
+#   5  age,        stereo,      two content spans               -> EXCLUDED not_minimal_pair
+#   6  gender,     stereo,      swap + pronoun concord only     -> admitted by the agreement rule
+#
+# The sentences are hand-written rather than copied from upstream: a fixture whose rows were chosen
+# to hit specific branches is clearer about what it tests, and the real file's own screening is
+# asserted separately in a skipif-gated test against the pinned CSV.
+
+# Declares a key that is NOT its filename, so `load_benchmark_config` must refuse it: a
+# manifest recording a source name that resolves to a different file records nothing.
+key: tiny
+benchmark_version: "tiny@2026-09-20"
+benchmark: crows_pairs
+task_type: pair_pll
+
+description: |
+  Seven crafted rows exercising every branch of the screen.
+
+source:
+  source: "CrowS-Pairs eyeball fixture"
+  url: null
+  path: "tests/fixtures/benchmarks/crows_eyeball.csv"
+  revision: "0000000000000000000000000000000000000000"
+  version: "fixture"
+  license: "CC-BY-SA-4.0"
+  sha256: "ff0355c04a28de1e4279a50753402fb0c20e36c5753ef8e2b3bf2994826ca42b"
+  retrieved_at: "2026-09-20T00:00:00Z"
+
+expected_rows: 7
+
+attributes:
+  - category: race-color
+    axis: race_ethnicity
+  - category: gender
+    axis: gender_and_sex
+  - category: age
+    axis: age
+  - category: disability
+    axis: ability
+  - category: socioeconomic
+    axis: socioeconomic_class
+  - category: religion
+    axis: null
+    note: "no religion axis in the five-axis lattice; kept and marked"
+  - category: nationality
+    axis: null
+    note: "no nationality axis; kept and marked"
+  - category: sexual-orientation
+    axis: null
+    note: "no sexual-orientation axis; kept and marked"
+  - category: physical-appearance
+    axis: null
+    note: "no physical-appearance axis; kept and marked"
+
+screening:
+  max_differing_spans: 1
+  max_differing_tokens: 4
+  require_contrast_on_mapped_axis: true
+  agreement_tokens:
+    - he
+    - she
+    - him
+    - her
+    - his
+    - hers
+    - himself
+    - herself
+    - they
+    - them
+    - their
+    - theirs
+    - themselves

@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from margins.config import (
+    LATTICE_INPUT_KEY,
     config_hash,
     default_config_dir,
     load_experiment_config,
@@ -51,16 +52,19 @@ from margins.inference import (
 from margins.lattice import DEFAULT_LATTICE
 from margins.lattice.config import default_lattice_config_dir
 from margins.prompts import (
+    DEFAULT_EXTRACTIVE_SET,
     DEFAULT_PROMPT_SET,
+    EXTRACTIVE_SET_INPUT_KEY,
     PROMPTS_FILENAME,
     default_prompt_config_dir,
+    load_extractive_config,
     load_prompt_config,
     load_template_files,
     prompt_set_inputs,
     read_prompts,
 )
-from margins.prompts.config import TEMPLATE_DIRNAME
-from margins.schemas import Prompt
+from margins.prompts.config import TEMPLATE_DIRNAME, file_sha256
+from margins.schemas import Prompt, TaskType
 
 
 def _latest_run_id(out_dir: Path, model_name: str) -> str | None:
@@ -110,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config-dir", type=Path, default=None)
     parser.add_argument("--lattice", default=DEFAULT_LATTICE)
     parser.add_argument("--prompt-set", default=DEFAULT_PROMPT_SET)
+    parser.add_argument(
+        "--extractive-set",
+        default=DEFAULT_EXTRACTIVE_SET,
+        help="Extractive prompt-set config name, used when the prompt file is pair_pll.",
+    )
     args = parser.parse_args(argv)
 
     spec = load_model_config(args.model, config_dir=default_model_config_dir())
@@ -159,14 +168,34 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  NOTE: {report.quant_fallback_reason}")
 
     # Manifest inputs: P4a's lattice + prompt set + frames, plus P5's checkpoint + decoding profile.
+    #
+    # Branches on the PARADIGM since P2. An extractive prompt set has no template files to digest,
+    # so the open_gen `inputs` builder does not apply to it; recording the lattice and the
+    # extractive set's own config is the equivalent record. Detected from the prompts themselves
+    # rather than from a flag -- a run whose manifest described the wrong prompt set would be
+    # wrong in exactly the way the manifest exists to prevent.
     prompt_dir = default_prompt_config_dir()
-    prompt_config = load_prompt_config(args.prompt_set, config_dir=prompt_dir)
-    files = load_template_files(prompt_config, prompt_dir / TEMPLATE_DIRNAME)
-    inputs = prompt_set_inputs(
-        lattice_config_path=default_lattice_config_dir() / f"{args.lattice}.yaml",
-        prompt_config_path=prompt_dir / f"{args.prompt_set}.yaml",
-        files=files,
-    )
+    lattice_path = default_lattice_config_dir() / f"{args.lattice}.yaml"
+    if all(prompt.task_type is TaskType.PAIR_PLL for prompt in prompts):
+        extractive = load_extractive_config(args.extractive_set, config_dir=prompt_dir)
+        inputs = {
+            LATTICE_INPUT_KEY: file_sha256(lattice_path),
+            EXTRACTIVE_SET_INPUT_KEY: file_sha256(prompt_dir / f"{args.extractive_set}.yaml"),
+        }
+        if extractive.decoding_key != cfg.decoding_name:
+            parser.error(
+                f"prompt set {extractive.key!r} is stamped decoding_key "
+                f"{extractive.decoding_key!r} but this run holds {cfg.decoding_name!r}. Pass "
+                f"--decoding {extractive.decoding_key}."
+            )
+    else:
+        prompt_config = load_prompt_config(args.prompt_set, config_dir=prompt_dir)
+        files = load_template_files(prompt_config, prompt_dir / TEMPLATE_DIRNAME)
+        inputs = prompt_set_inputs(
+            lattice_config_path=lattice_path,
+            prompt_config_path=prompt_dir / f"{args.prompt_set}.yaml",
+            files=files,
+        )
     inputs.update(
         inference_inputs(
             model_config_path=default_model_config_dir() / f"{args.model}.yaml",

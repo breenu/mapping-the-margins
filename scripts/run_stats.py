@@ -40,7 +40,7 @@ from margins.prompts.config import file_sha256
 from margins.stats.analysis import run_stats_analysis
 from margins.stats.config import DEFAULT_STATS, default_stats_config_dir, load_stats_config
 from margins.stats.export import DEFAULT_STATS_DIR, export_stats
-from margins.stats.inputs import load_stats_inputs
+from margins.stats.inputs import load_stats_inputs_many
 from margins.stats.manifest import stats_inputs, stats_record
 from margins.stats.numbers import (
     PAPER_NUMBERS_PATH,
@@ -54,7 +54,15 @@ BENCHMARK = "open_gen_templates"
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--metrics-dir", type=Path, default=DEFAULT_METRICS_DIR)
+    parser.add_argument(
+        "--metrics-dir",
+        type=Path,
+        nargs="+",
+        default=[DEFAULT_METRICS_DIR],
+        help="One or more P7 output directories. Pass BOTH paradigms' directories: the FDR "
+        "family spans benchmark x model x axis_pair x term x harm_type across the whole "
+        "pre-registered set and is never corrected per-source (section 8).",
+    )
     parser.add_argument("--stats", default=DEFAULT_STATS, help="Stats config name.")
     parser.add_argument("--lattice", default=DEFAULT_LATTICE)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_STATS_DIR)
@@ -73,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     lattice_config = lattice.config
     min_cell_n = lattice_config.power.min_cell_n
 
-    inputs = load_stats_inputs(args.metrics_dir)
+    inputs = load_stats_inputs_many(args.metrics_dir)
     designs = pair_designs(lattice.cells())
 
     print(f"stats      {config.key}  {config.stats_version}  hash={config.stats_hash[:16]}...")

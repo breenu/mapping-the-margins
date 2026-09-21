@@ -60,6 +60,7 @@ __all__ = [
     "Response",
     "TaskType",
     "TemplatePayload",
+    "register_payload_type",
 ]
 
 _SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
@@ -201,11 +202,32 @@ class TemplatePayload(TypedDict):
 
 
 #: Registry typing ``Item.payload`` at the **loader boundary**. The shared record stays
-#: source-agnostic, but mypy is not blind on the one field carrying the real data. P2 (extractive
-#: loaders) and P8 (red-team) register their own payload types here as they are built.
+#: source-agnostic, but mypy is not blind on the one field carrying the real data. P8 (red-team)
+#: registers its own payload type here as it is built.
+#:
+#: Populated lazily by :func:`register_payload_type` rather than by importing every loader here:
+#: ``margins.benchmarks`` imports this module, so naming its payload type in this dict would be a
+#: cycle. The loader registers itself on import, and ``tests/test_crows_loader.py`` asserts the
+#: registration happened.
 PAYLOAD_TYPES: Final[dict[str, type]] = {
     "open_gen_templates": TemplatePayload,
 }
+
+
+def register_payload_type(benchmark: str, payload_type: type) -> None:
+    """Type ``Item.payload`` for one source, at that source's loader boundary.
+
+    Re-registering the same type is a no-op, so a module imported twice is harmless; registering a
+    *different* type under an existing key raises, because two loaders disagreeing about one
+    benchmark's payload shape is a contract conflict, not a late binding.
+    """
+    existing = PAYLOAD_TYPES.get(benchmark)
+    if existing is not None and existing is not payload_type:
+        raise ValueError(
+            f"benchmark {benchmark!r} is already registered with payload type "
+            f"{existing.__name__}; refusing to rebind it to {payload_type.__name__}."
+        )
+    PAYLOAD_TYPES[benchmark] = payload_type
 
 
 # --------------------------------------------------------------------------------------
@@ -402,7 +424,24 @@ class Item(BaseModel):
 
 
 class Prompt(BaseModel):
-    """A rendered model input. Deterministic given its item, cell, and template version."""
+    """A rendered model input. Deterministic given its item, cell, and template version.
+
+    **Paired-task shape (open decision 7, resolved 20 Sep 2026).** A ``pair_pll`` measurement
+    compares *two* sequences, and :attr:`rendered_text` is one string. The pair therefore lives on
+    this **single** record as :attr:`rendered_text_stereo` / :attr:`rendered_text_antistereo`,
+    mirroring decision 6, where one :class:`Response` carries both log-probabilities. One
+    ``Prompt`` -> one ``Response`` -> one score: the pair travels as a unit end to end.
+
+    The rejected alternative was two linked ``Prompt`` records. It would have made ``prompt_id``
+    ambiguous as a cluster key -- the metric layer clusters by ITEM, and half a pair is not an item
+    -- and it would have forced every consumer between here and the FDR family to know that two
+    rows are sometimes one measurement.
+
+    Note what this record can enforce that :class:`Response` cannot: ``Prompt`` carries
+    ``task_type``, so "both sequences exactly when the task is paired" is a **single-record**
+    constraint and is validated below. ``Response`` has no task type, so its analogous rule spans
+    two records and lives at the P5/P6 boundary instead.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -416,6 +455,65 @@ class Prompt(BaseModel):
     task_type: TaskType
     template_version: str = Field(min_length=1)
     decoding_key: str = Field(min_length=1)
+
+    # --- paired-task sequences (pair_pll only; null on open_gen) ---
+    # Named for what they MEASURE, not for any one dataset's columns: CrowS-Pairs'
+    # sent_more/sent_less vocabulary is source-specific and would violate invariant 2 on a shared
+    # record -- and it is not even synonymous, since `sent_more` is the ANTI-stereotypical member
+    # on the 218 upstream rows marked `antistereo`.
+    rendered_text_stereo: str | None = Field(
+        default=None,
+        description=("The MORE-stereotyping sequence to be scored. Null for non-paired tasks."),
+    )
+    rendered_text_antistereo: str | None = Field(
+        default=None,
+        description=(
+            "The LESS-stereotyping (anti-stereotypical) sequence. Null for non-paired tasks. These "
+            "two are scored into `Response.logprob_stereo` / `.logprob_antistereo` RESPECTIVELY; "
+            "swapping them here silently flips the sign of every pair_pll effect."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _paired_tasks_carry_both_sequences(self) -> Prompt:
+        """Both sequences exactly when the task is paired, and neither otherwise."""
+        present = (self.rendered_text_stereo is not None, self.rendered_text_antistereo is not None)
+        if self.task_type is TaskType.PAIR_PLL:
+            if not all(present):
+                raise ValueError(
+                    "a pair_pll prompt carries BOTH rendered_text_stereo and "
+                    "rendered_text_antistereo; half a pair is not a measurement. Got "
+                    f"stereo={self.rendered_text_stereo!r}, "
+                    f"antistereo={self.rendered_text_antistereo!r}"
+                )
+            if (
+                not (self.rendered_text_stereo or "").strip()
+                or not (self.rendered_text_antistereo or "").strip()
+            ):
+                raise ValueError("a pair_pll prompt's two sequences must both be non-empty")
+            if self.rendered_text_stereo == self.rendered_text_antistereo:
+                raise ValueError(
+                    "a pair_pll prompt's two sequences are identical, so their log-probability "
+                    "difference is zero by construction and measures nothing"
+                )
+            if self.rendered_text:
+                raise ValueError(
+                    "a pair_pll prompt has no single rendered model input: the two sequences ARE "
+                    "the input, one per forward pass, so rendered_text must be empty. This "
+                    "mirrors Response.text being empty for a paired response -- inventing a text "
+                    "would misrepresent what was measured."
+                )
+        elif any(present):
+            raise ValueError(
+                f"task_type={self.task_type.value} must leave rendered_text_stereo and "
+                "rendered_text_antistereo null; they are a pair_pll measurement's two sequences."
+            )
+        return self
+
+    @property
+    def is_paired(self) -> bool:
+        """True when this prompt carries a ``pair_pll`` measurement's two sequences."""
+        return self.rendered_text_stereo is not None and self.rendered_text_antistereo is not None
 
 
 class Response(BaseModel):

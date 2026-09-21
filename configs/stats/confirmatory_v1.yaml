@@ -61,6 +61,29 @@ fdr:
   # The dependent gammas are still REPORTED, with cluster-bootstrap CIs, descriptively.
   family_terms: free_interaction
 
+  # THE SOURCES THE FAMILY SPANS. Added 20 Sep 2026 with P2 (pre-registration amendment, §10).
+  #
+  # §8 defines the family as `benchmark x model x axis_pair x term x harm_type`, and until P2 the
+  # benchmark component was INFERRED from whichever effects landed in `effects.parquet`. That made
+  # `family_size` a function of which files happened to be on disk, and it made the "correcting a
+  # subset RAISES" guard structurally unable to notice that an entire source never arrived --
+  # because the expected set was built FROM the offered effects. Running P9 on an open_gen-only
+  # metrics directory would have quietly produced a smaller family and MORE discoveries.
+  #
+  # Declared here, that becomes an error in both directions: a declared source that produces
+  # neither estimates nor a P7 not-estimable excuse raises, and an undeclared source whose effects
+  # show up raises too.
+  #
+  # NOTE ON SIZE. The pre-registered 168 = 42 terms x 2 models x 2 harm types was computed with one
+  # source. `crows_pairs` carries a different harm type (`stereotype_preference`) and, as measured,
+  # reports every confirmatory pair NOT ESTIMABLE -- each CrowS item attests a single attribute, so
+  # the order-2 grid is never populated. Its members are therefore excused, and the corrected
+  # family size stays 168. The declaration is what makes that a checked fact rather than a
+  # coincidence of which artifacts were present.
+  family_benchmarks:
+    - open_gen_templates
+    - crows_pairs
+
   # §8: "BH assumes independence or PRDS; tests here share items, templates, and a model, so either
   # state the PRDS assumption explicitly or use fdr_by." Stating it is mandatory -- the config FAILS
   # TO LOAD under fdr_bh with this left empty.

@@ -51,7 +51,9 @@ from margins.schemas import Provenance
 
 __all__ = [
     "ARTICLE_RISKY_PREFIXES",
+    "DEFAULT_EXTRACTIVE_SET",
     "DEFAULT_PROMPT_SET",
+    "EXTRACTIVE_SET_INPUT_KEY",
     "LEGAL_ARTICLES",
     "MAX_CARRIERS",
     "PROMPT_SET_INPUT_KEY",
@@ -59,11 +61,14 @@ __all__ = [
     "TEMPLATE_INPUT_PREFIX",
     "VOWEL_LETTERS",
     "CarrierSpec",
+    "ExtractivePromptSetConfig",
     "PromptSetConfig",
     "TemplateFile",
     "TemplateSpec",
     "default_prompt_config_dir",
+    "extractive_config_from_mapping",
     "file_sha256",
+    "load_extractive_config",
     "load_prompt_config",
     "load_template_files",
     "normalize_template_text",
@@ -413,3 +418,103 @@ def load_prompt_config(
     if not isinstance(data, dict):
         raise TypeError(f"composed prompt config {name!r} is not a mapping, got {type(data)!r}")
     return prompt_config_from_mapping(cast(Mapping[str, Any], data))
+
+
+# --------------------------------------------------------------------------------------
+# The extractive prompt set (P4b)
+# --------------------------------------------------------------------------------------
+
+#: The extractive prompt set this project's confirmatory runs render.
+DEFAULT_EXTRACTIVE_SET: Final[str] = "crows_pll_v1"
+
+#: Manifest ``inputs`` key for the extractive prompt-set config's sha256.
+EXTRACTIVE_SET_INPUT_KEY: Final[str] = "extractive_set_config"
+
+
+class ExtractivePromptSetConfig(BaseModel):
+    """The validated ``pair_pll`` prompt-set declaration (P4b).
+
+    A **separate class** from :class:`PromptSetConfig`, not a widening of it. That config types
+    ``task_type`` as ``Literal["open_gen"]`` precisely so a paired prompt set fails to *load*
+    rather than failing review, and the two have almost nothing in common: this one has no
+    templates, no carriers, no article rule and no leakage guard, because an extractive renderer
+    composes no text at all -- it copies the source sentences verbatim. Sharing a config class
+    would mean every field on it was optional for one of the two renderers, which is how a config
+    stops validating anything.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    key: str = Field(min_length=1, description="Must equal the config filename.")
+    template_version: str = Field(
+        min_length=1,
+        description=(
+            "Stamped on every Prompt, and part of the prompt id's digest preimage. 'Template' is a "
+            "slight misnomer here -- there is no template -- but the field is the shared record's, "
+            "and it means the same thing: the version of the rendering rules that produced this "
+            "prompt. Bump it on any change that alters what gets scored."
+        ),
+    )
+    description: str = Field(min_length=1, description="What this prompt set is, in prose.")
+    task_type: Literal["pair_pll"] = "pair_pll"
+    benchmark: str = Field(
+        min_length=1,
+        description=(
+            "The source whose items this set renders. The renderer refuses an item from any other "
+            "benchmark: two sources sharing a template_version would be indistinguishable "
+            "downstream."
+        ),
+    )
+    license: str = Field(
+        min_length=1,
+        description=(
+            "Licence of the RENDERED prompts. For an extractive set the sequences are the upstream "
+            "dataset's own sentences, so this is the dataset's licence, not ours."
+        ),
+    )
+    authored_at: datetime = Field(
+        description="Recorded, never clock-read: prompt provenance must be deterministic."
+    )
+    decoding_key: str = Field(
+        min_length=1,
+        description=(
+            "Named decoding profile stamped on every Prompt. For a paired set this is a "
+            "log-probability SCORING profile, not a generation one: it records whether the chat "
+            "template is applied and what the input bound is, both of which change the measured "
+            "sequence log-likelihood. The backend refuses a prompt whose key does not match the "
+            "profile it holds."
+        ),
+    )
+
+
+def extractive_config_from_mapping(data: Mapping[str, Any]) -> ExtractivePromptSetConfig:
+    """Validate a plain mapping into an :class:`ExtractivePromptSetConfig`."""
+    return ExtractivePromptSetConfig.model_validate(dict(data))
+
+
+def load_extractive_config(
+    name: str = DEFAULT_EXTRACTIVE_SET, *, config_dir: Path | None = None
+) -> ExtractivePromptSetConfig:
+    """Compose ``<config_dir>/<name>.yaml`` with Hydra and validate it."""
+    from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
+
+    directory = (config_dir or default_prompt_config_dir()).resolve()
+    if not directory.is_dir():
+        raise FileNotFoundError(f"prompt config dir does not exist: {directory}")
+
+    with initialize_config_dir(version_base=None, config_dir=str(directory)):
+        composed = compose(config_name=name)
+    data = OmegaConf.to_container(composed, resolve=True)
+    if not isinstance(data, dict):
+        raise TypeError(f"composed prompt config {name!r} is not a mapping, got {type(data)!r}")
+    payload = cast(dict[str, Any], data)
+    payload.setdefault("key", name)
+
+    config = extractive_config_from_mapping(payload)
+    if config.key != name:
+        raise ValueError(
+            f"extractive prompt set {name!r} declares key={config.key!r}. The filename and the key "
+            "must agree, or the manifest records a set name that resolves to a different file."
+        )
+    return config

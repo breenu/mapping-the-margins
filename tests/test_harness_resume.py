@@ -153,6 +153,49 @@ class FakeBackend:
         self.produced += len(responses)
         return responses
 
+    def score_pairs(
+        self, prompts: Sequence[Prompt], *, seed: int | None = None, sample_index: int = 0
+    ) -> list[Response]:
+        """The paired half of the Protocol (P2).
+
+        Fabricates log-probabilities rather than computing them: the harness's contract is
+        resumability, and which number lands on the record is the backend's business. What matters
+        here is that the ids match the plan and that a paired response carries BOTH log-probs, so a
+        half-paired record would fail schema validation before it ever reached the file.
+        """
+        from margins.inference.backend import make_response_id
+
+        if self._die_after is not None and self.produced >= self._die_after:
+            raise RuntimeError("session died (simulated)")
+
+        responses = [
+            Response(
+                response_id=make_response_id(
+                    prompt_id=prompt.prompt_id,
+                    model_name=self._spec.name,
+                    model_id=self._spec.model_id,
+                    revision=self._spec.revision,
+                    seed=seed if seed is not None else 0,
+                    sample_index=sample_index,
+                    decoding_hash=self._decoding.decoding_hash,
+                ),
+                prompt_id=prompt.prompt_id,
+                model_id=self._spec.model_id,
+                model_revision=self._spec.revision,
+                seed=seed if seed is not None else 0,
+                temperature=self._decoding.temperature,
+                decoding_key=self._decoding.key,
+                decoding_hash=self._decoding.decoding_hash,
+                quant="none",
+                text="",
+                logprob_stereo=-1.0,
+                logprob_antistereo=-2.0,
+            )
+            for prompt in prompts
+        ]
+        self.produced += len(responses)
+        return responses
+
 
 def _harness(backend: Any, tmp_path: Path, **kwargs: Any) -> RunHarness:
     return RunHarness(backend, run_id=RUN_ID, out_dir=tmp_path / "responses", **kwargs)

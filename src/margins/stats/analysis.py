@@ -85,10 +85,13 @@ def run_stats_analysis(
     """Run the whole stage and return its result. Pure of I/O beyond what ``inputs`` holds."""
     check_effects_match_fits(inputs)
 
+    # `attempted_groups`, not `groups`: the family spans what P7 TRIED, so a source whose every
+    # pair came back not-estimable still takes its place in the family and is excused rather than
+    # vanishing from it and shrinking the Benjamini-Hochberg denominator (P2).
     plan: FamilyPlan = build_family_plan(
         designs,
         lattice_config=lattice_config,
-        groups=inputs.groups,
+        groups=inputs.attempted_groups or inputs.groups,
         settings=config.fdr,
         not_estimable=not_estimable_reasons(inputs),
     )

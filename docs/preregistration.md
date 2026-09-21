@@ -108,7 +108,20 @@ reported descriptively, and carries **no p and no q**.
 
 - **Members:** the `(|A|-1)(|B|-1)` **free interaction contrasts** of each confirmatory pair,
   crossed with benchmark x model x harm type. **Family size 168** = 42 terms x 2 models x 2 harm
-  types.
+  types, for the generative paradigm.
+- **The benchmarks the family spans are DECLARED, not inferred** (amended 20 Sep 2026, §10).
+  `configs/stats/confirmatory_v1.yaml` names them: `open_gen_templates` and `crows_pairs`. Until
+  P2 the benchmark component was taken from whichever effects happened to reach
+  `effects.parquet`, which made `family_size` a function of which files were on disk and left the
+  subset guard unable to notice that an entire source never arrived. Now a declared source that
+  P7 never attempted **raises**, and an attempted source that is not declared **raises** too.
+  Each source brings its own harm types, so no member is invented for a test that was never run.
+- **`crows_pairs` members are expected to be EXCUSED, and the corrected family size stays 168.**
+  Measured on the pinned file: each CrowS item is annotated with one attribute, so the order-2
+  grid is never populated and every confirmatory pair comes back not estimable. Its members
+  therefore take their declared place in the family and are excused with P7's own reason. This is
+  reported as a result about the paradigm, never as a null result about the model
+  (`docs/methods.md` §2.5).
 - **Why the free contrasts:** P7 emits every level's coefficient and that set is linearly
   dependent (gamma rows and columns sum to zero), so correcting over all of them would add tests
   carrying no information while costing power. The free contrasts are the design's own interaction
@@ -184,11 +197,22 @@ that could switch it to rows could quietly understate every variance.
 | 19 Sep 2026 | **MDE re-targeted 0.3 SD -> 0.5 SD** | The measured rho makes 0.3 SD unreachable at accessible compute. Recorded rather than quietly absorbed |
 | 19 Sep 2026 | Prompts per cell 9 -> 27; `min_cell_n` 60 -> 108 | Derived from the measured rho; the 96/60 placeholders are resolved |
 | 19 Sep 2026 | Sub-0.5 SD effects are exploratory/descriptive | Consequence of the re-target, stated so it is not read as selective reporting |
+| 20 Sep 2026 | **Open decision 7 resolved**: a `pair_pll` Prompt carries BOTH sequences on one record (`rendered_text_stereo` / `rendered_text_antistereo`) | Mirrors decision 6's one Response carrying both log-probabilities. Splitting a pair into two linked Prompts would have made `prompt_id` ambiguous as the metric layer's cluster key, since half a pair is not an item |
+| 20 Sep 2026 | FDR family: the **benchmarks it spans are declared** in `configs/stats/`, not inferred from the artifacts present | The inferred form made `family_size` depend on which parquet files were on disk, and the "correcting a subset raises" guard could not detect a wholly absent source. A pre-registered number must not be a function of the file system |
+| 20 Sep 2026 | New harm type `stereotype_preference` for the extractive paradigm, with two reductions (`pll_total`, `pll_length_normalized`) under a **separate roster** | A paired measurement has no external instrument, so framing constraint 6 is satisfied by two reductions that fail differently (length/frequency confound) rather than by two classifiers. Separate roster because `scoring_hash` rides in every `score_id` |
+| 20 Sep 2026 | Extractive sequences are scored **raw**, with no chat template, under `pll_v1` | Matches how CrowS-Pairs log-likelihood is computed in the literature; wrapping would fold the per-model template into the measurement. The asymmetry with the generative path is recorded in `docs/methods.md`, not hidden |
+| 20 Sep 2026 | **No identity-drift control for the extractive paradigm** | Structural, not an omission: the control scores known-neutral text through the same instrument, and a log-probability difference has neither text nor instrument |
+| 21 Sep 2026 | **CrowS-Pairs' role is SCOPED: single-axis calibration + evidence that sentence-pair benchmarks structurally cannot support intersectional auditing. RQ1's cross-paradigm claim is scoped accordingly.** ⚠ **Awaiting human / supervisor sign-off.** | Measured on the pinned file, not discovered late: 1,352 kept items yield 198 order-1 cells and **3 order-2**, because each item is annotated with ONE attribute and an order-2 cell needs a second identity term present unchanged in BOTH sentences. Every confirmatory pair is therefore `estimable=False` and excused (§4), and the corrected family size is unchanged. RQ1's *interaction* comparison consequently runs **generation vs. red-team**; generation vs. extraction is compared at the single-axis / descriptive level and reported beside the structural finding. A result about the PARADIGM, never a null result about the model (`docs/methods.md` §2.5, `docs/PROJECT_CONTEXT.md` §1) |
 
 ## 11. What is NOT pre-registered here
 
 - The exploratory pair (`age x race_ethnicity`) and anything else outside the confirmatory set.
 - The red-team prompt distribution (P8), which is scoped to the confirmatory pairs but whose
-  generation is not fixed here.
+  generation is not fixed here. **Nor is red-team's FDR-family membership**: `redteam` is
+  deliberately absent from `family_benchmarks` in `configs/stats/confirmatory_v1.yaml`, so no
+  red-team estimate can currently carry a q. Admitting it is a logged amendment that must ride with
+  a **re-run power analysis**, because 168 -> 336 changes the Benjamini-Hochberg threshold that
+  `min_cell_n = 108` was derived against (§3). P8 builds and tests the machinery; the declaration
+  is a P11 decision taken against real red-team fits.
 - Any claim about a second model family, additional benchmarks, or ablations A1-A3, all of which
   are out of scope unless ahead of schedule.

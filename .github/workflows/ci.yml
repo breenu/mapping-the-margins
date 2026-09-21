@@ -98,5 +98,21 @@ jobs:
       - name: Fetch the scoring lexicons at their PINNED revisions
         run: uv run python scripts/fetch_lexicons.py --fetch-pinned
 
+      # Same story for the extractive source (P2). `data/` is gitignored, so the pinned
+      # CrowS-Pairs CSV is absent on a fresh runner and the loader's real-file tests skip
+      # themselves -- including "row counts match the published dataset", which is a P2 gate
+      # clause. Fetching it here is what makes those tests actually run somewhere.
+      #
+      # `--fetch-pinned`, NOT `--write`, for exactly the reason the lexicon step gives: `--write`
+      # resolves upstream HEAD and re-pins, which would silently score against whatever the
+      # dataset looks like today. This mode downloads at the recorded revision and refuses on a
+      # digest mismatch.
+      #
+      # It stays in the NIGHTLY job rather than the core one on purpose: the core job is hermetic
+      # on both OSes, and adding a network dependency to it would trade a real property for a
+      # marginally earlier signal.
+      - name: Fetch the CrowS-Pairs dataset at its PINNED revision
+        run: uv run python scripts/fetch_crows_pairs.py --fetch-pinned
+
       - name: pytest (includes the inference-marked P5 gate tests)
         run: uv run pytest -q

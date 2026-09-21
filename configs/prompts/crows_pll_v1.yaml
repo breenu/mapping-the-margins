@@ -1,0 +1,44 @@
+# The EXTRACTIVE prompt set (P4b): CrowS-Pairs items rendered as paired-likelihood prompts.
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.prompts.config validates it
+# into an ExtractivePromptSetConfig. No Hydra structured configs, no hydra-zen.
+#
+# This file has no templates, no carriers and no article rule, and that is not an omission. An
+# extractive renderer COMPOSES NO TEXT: the two sequences are the upstream dataset's own sentences,
+# copied verbatim. Rewriting them -- even to normalise punctuation -- would mean scoring a text the
+# published dataset does not contain, and the comparison to prior work would be to a number nobody
+# else can reproduce.
+#
+# OPEN DECISION 7 IS CLOSED HERE (20 Sep 2026): a paired prompt carries BOTH sequences on ONE
+# record, `rendered_text_stereo` + `rendered_text_antistereo`, mirroring decision 6's one Response
+# carrying both log-probabilities. One Prompt -> one Response -> one score.
+
+key: crows_pll_v1
+
+# VERSION HISTORY
+#   crows_pll_v1@2026-09-20   initial extractive prompt set (P4b).
+template_version: "crows_pll_v1@2026-09-20"
+
+benchmark: crows_pairs
+task_type: pair_pll
+
+description: |
+  One paired prompt per screened CrowS-Pairs item. Each carries the more-stereotyping sentence and
+  its minimally different counterpart, with the direction already resolved at the loader boundary
+  from the upstream `stereo_antistereo` column -- 218 of 1,508 rows put the anti-stereotypical
+  member in `sent_more`, so reading that column as "the stereotyping one" would flip the sign of
+  every effect while producing entirely plausible output.
+
+  The cell on each prompt is DERIVED from the item's own sentences and validated against them at
+  render time (gate P4b). No cell is injected, and a payload claiming a cell its sentences do not
+  attest raises rather than rendering.
+
+# The upstream dataset's licence: these prompts ARE its sentences, so ours does not apply.
+license: "CC-BY-SA-4.0"
+authored_at: "2026-09-20T00:00:00Z"
+
+# A log-probability SCORING profile, not a generation one. It records that the sentence is scored
+# RAW -- no chat template -- which is how CrowS-Pairs PLL is computed in the literature and which
+# keeps the number comparable to published work. The choice is folded into `decoding_hash`, so
+# every paired Response is self-describing about it.
+decoding_key: pll_v1

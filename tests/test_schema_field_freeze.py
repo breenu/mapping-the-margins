@@ -33,6 +33,12 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
     AxisValue: {"axis", "value", "provenance"},
     IdentityCell: {"cell_id", "axes", "order"},
     Item: {"id", "benchmark", "task_type", "payload", "target_axes", "gold", "provenance"},
+    # CONTRACT CHANGE 20 Sep 2026 (P2, open decision 7): rendered_text_stereo and
+    # rendered_text_antistereo added so a pair_pll prompt is ONE record carrying both sequences
+    # rather than two linked records. `rendered_text` is a single string and cannot hold a pair;
+    # splitting the pair instead would have made prompt_id ambiguous as the metric layer's cluster
+    # key, since half a pair is not an item. Mirrors decision 6, where one Response carries both
+    # log-probabilities. Named for what they measure, never for a dataset's columns.
     Prompt: {
         "prompt_id",
         "item_id",
@@ -41,6 +47,8 @@ EXPECTED_FIELDS: dict[type[BaseModel], set[str]] = {
         "task_type",
         "template_version",
         "decoding_key",
+        "rendered_text_stereo",
+        "rendered_text_antistereo",
     },
     # CONTRACT CHANGE 8 Sep 2026 (open decision 6, option (a)): logprob_stereo and
     # logprob_antistereo added so a pair_pll pair is one Response rather than a second
