@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 from margins.lattice.config import LatticeConfig
 from margins.metrics.design import PairDesign, interaction_term, main_term
@@ -140,7 +141,40 @@ class FamilyPlan:
         )
 
     def is_confirmatory(self, key: EffectKey) -> bool:
+        """Whether this estimate's **axis pair** is a confirmatory one.
+
+        A coarser question than :meth:`is_family_member`, and not the one correction asks. A
+        confirmatory pair's fit emits main effects and every interaction cell; only its *free*
+        interaction contrasts are family members (section 8, and ``family_terms``).
+        """
         return key[2] in self.confirmatory_pairs
+
+    def is_family_member(self, key: EffectKey) -> bool:
+        """Whether this exact ``benchmark x model x pair x term x harm`` slot is IN the family.
+
+        **This, not :meth:`is_confirmatory`, is what decides who gets a p and a q.**
+
+        FIXED 21 Sep 2026, found by running real P7 output through P9 for the first time (P8's
+        integration test; the dev artifact had no estimable pair, so nothing had ever exercised
+        this path). Correction selected its inputs with ``is_confirmatory``, i.e. by axis pair
+        alone -- so a confirmatory pair's **main effects and dependent interaction cells** were
+        offered for correction even though the family holds only its free contrasts, and
+        :meth:`validate` then raised ``UnknownFamilyMemberError``. On the shipped lattice that is
+        13 of the 19 terms P7 emits per pair, so the first full run would have failed at the
+        correction step with the GPU time already spent.
+
+        Selecting by membership restores the documented behaviour: the dependent gammas and the
+        main effects are **reported descriptively, with their cluster-bootstrap CIs, and carry no
+        p and no q** -- exactly as an exploratory pair does, and for the same reason. A bare p on
+        a term the pre-registration excluded invites precisely the reading the confirmatory /
+        exploratory split exists to prevent.
+        """
+        return key in self._expected
+
+    @cached_property
+    def _expected(self) -> frozenset[EffectKey]:
+        """Cached membership set. Correction asks per effect, so rebuilding it would be O(n^2)."""
+        return self.expected_keys()
 
     def validate(self, keys: Collection[EffectKey]) -> None:
         """Refuse a family that is not the declared one, in either direction."""

@@ -106,6 +106,10 @@ DEFAULT_STATS_NAME: Final[str] = "confirmatory_v1"
 #: ``margins.benchmarks.config.DEFAULT_BENCHMARK``.
 DEFAULT_BENCHMARK_NAME: Final[str] = "crows_pairs_v1"
 
+#: Default red-team set name (P8). A literal for the same import-cycle reason as the six above;
+#: ``tests/test_redteam_config.py`` pins it against ``margins.redteam.config.DEFAULT_REDTEAM_SET``.
+DEFAULT_REDTEAM_NAME: Final[str] = "cell_targeted_v1"
+
 _RUN_NAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -209,6 +213,18 @@ class ExperimentConfig(BaseModel):
         description=(
             "Extractive benchmark config name, or None for runs that ingest no benchmark. Its "
             "sha256, and the pinned source file's, are recorded in the manifest inputs."
+        ),
+    )
+
+    # Added at P8. `_name` suffix once more: `configs/redteam/` is a Hydra config GROUP. Optional
+    # and None by default, like `benchmark_name` and for the same reason -- most runs generate no
+    # red-team frames, and a run naming a set it never read would put a checksum in its manifest
+    # for a file it never opened. The red-team build scripts set it.
+    redteam_name: str | None = Field(
+        default=None,
+        description=(
+            "Red-team set config name, or None for runs that generate no red-team frames. Its "
+            "sha256, and each elicitation template's, are recorded in the manifest inputs."
         ),
     )
 
@@ -429,6 +445,54 @@ class StatsRecord(BaseModel):
     n_refused: int = Field(ge=0)
 
 
+class RedTeamRecord(BaseModel):
+    """What the red-team generation stage actually did (P8).
+
+    Carries the **generator pin**, not only its name, for the same reason :class:`ScorerRecord`
+    carries a scorer's: "which red LM" is not answerable from a config name alone, and a re-pinned
+    generator is a different instrument producing a different prompt *distribution* — which is the
+    contribution of P8, so it is the thing a manifest most needs to state.
+
+    The rejection counts are here rather than only in the gitignored report because gate P8 is
+    "dedup + filter logged", and a run whose filter yield is knowable only from a regenerable
+    artifact cannot be audited from its manifest alone. The same argument put
+    ``agreement_summary`` on :class:`ScoringRecord`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", protected_namespaces=())
+
+    redteam_name: str
+    redteam_version: str
+    benchmark: str = Field(description="The AUDIT source label, i.e. the tag E3 reads.")
+
+    generator_model_name: str
+    generator_model_id: str
+    generator_revision: str = Field(description="The RESOLVED commit sha, never a branch.")
+    generator_decoding_key: str
+    generator_decoding_hash: str
+    audit_decoding_key: str = Field(
+        description="What the TARGET model runs the audit prompts under. Matched to the static arm."
+    )
+
+    base_prompt_set: str = Field(description="Where the carriers and article rule were inherited.")
+    base_template_version: str
+
+    n_target_cells: int = Field(ge=0)
+    n_elicitation_prompts: int = Field(ge=0)
+    n_responses: int = Field(ge=0, description="Red LM generations read.")
+    n_candidates: int = Field(ge=0, description="Frame lines parsed out of those generations.")
+    n_rejected: int = Field(ge=0)
+    rejections_by_reason: dict[str, int] = Field(
+        default_factory=dict,
+        description="Closed vocabulary; see margins.redteam.filter.REJECTION_REASONS.",
+    )
+    n_frames: int = Field(ge=0, description="Frames that rendered cleanly into EVERY target cell.")
+    n_audit_prompts: int = Field(ge=0)
+    n_on_target_sample: int = Field(
+        default=0, ge=0, description="Frames drawn for the human on-target audit."
+    )
+
+
 class RunManifest(BaseModel):
     """Everything needed to reconstruct a run, including what could not be determined.
 
@@ -479,6 +543,13 @@ class RunManifest(BaseModel):
         description=(
             "What the statistics stage actually did: which family, which correction, what power. "
             "None for runs that declare no significance, which is most of them."
+        ),
+    )
+    redteam: RedTeamRecord | None = Field(
+        default=None,
+        description=(
+            "What the red-team generation stage actually did: which red LM, asked what, and what "
+            "survived the filter. None for runs that generate no frames, which is most of them."
         ),
     )
 
@@ -604,6 +675,7 @@ def write_run_manifest(
     scoring: ScoringRecord | None = None,
     metrics: MetricsRecord | None = None,
     stats: StatsRecord | None = None,
+    redteam: RedTeamRecord | None = None,
 ) -> RunManifest:
     """Write ``<results_dir>/<manifest_subdir>/<run_id>.json`` and return what was written.
 
@@ -621,6 +693,8 @@ def write_run_manifest(
         scoring: What the scoring stage actually did. None for runs that score nothing.
         metrics: What the metric stage actually did. None for runs that fit nothing.
         stats: What the statistics stage actually did. None for runs that declare nothing.
+        redteam: What the red-team generation stage actually did. None for runs that generate
+            no frames.
 
     Returns:
         The manifest **re-read and re-validated from the file on disk**, so the returned object
@@ -665,6 +739,7 @@ def write_run_manifest(
         scoring=scoring,
         metrics=metrics,
         stats=stats,
+        redteam=redteam,
     )
 
     destination = cfg.results_dir / cfg.manifest.manifest_subdir / f"{resolved_run_id}.json"

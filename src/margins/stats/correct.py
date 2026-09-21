@@ -74,9 +74,15 @@ class BenjaminiHochbergEngine:
         Exploratory estimates are returned unchanged and in place. Input order is preserved, so a
         caller can zip the result against what it passed in.
 
+        **Membership, not the axis pair, selects what gets corrected** (fixed 21 Sep 2026). A
+        confirmatory pair's fit also emits main effects and every dependent interaction cell, and
+        those are NOT family members: they are returned unchanged, with their CIs, carrying no p
+        and no q -- exactly as an exploratory pair's estimates are. Selecting by pair offered them
+        for correction and made :meth:`FamilyPlan.validate` raise on any real P7 artifact.
+
         Raises:
-            MissingPValueError: a confirmatory estimate has no ``p``.
-            AlreadyCorrectedError: a confirmatory estimate already has a ``q``.
+            MissingPValueError: a family member has no ``p``.
+            AlreadyCorrectedError: a family member already has a ``q``.
             IncompleteFamilyError / UnknownFamilyMemberError: the offered set is not the family.
         """
         from statsmodels.stats.multitest import multipletests
@@ -84,7 +90,7 @@ class BenjaminiHochbergEngine:
         confirmatory_index = [
             index
             for index, effect in enumerate(effects)
-            if self._plan.is_confirmatory(effect_key(effect))
+            if self._plan.is_family_member(effect_key(effect))
         ]
         confirmatory = [effects[index] for index in confirmatory_index]
 

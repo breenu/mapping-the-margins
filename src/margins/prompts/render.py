@@ -49,12 +49,17 @@ import hashlib
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Protocol, runtime_checkable
 
 from jinja2 import Environment, StrictUndefined, Template, meta
 
 from margins.lattice.build import DeclaredLattice
-from margins.prompts.config import PromptSetConfig, TemplateFile, normalize_template_text
+from margins.prompts.config import (
+    CarrierSpec,
+    PromptSetConfig,
+    TemplateFile,
+    normalize_template_text,
+)
 from margins.schemas import IdentityCell, Item, Prompt, TaskType
 
 __all__ = [
@@ -67,6 +72,7 @@ __all__ = [
     "TEMPLATE_ITEM_BENCHMARK",
     "TEMPLATE_ITEM_PREFIX",
     "PreparedTemplate",
+    "RenderRules",
     "TemplateRenderer",
     "axis_vocabulary",
     "identity_vocabulary",
@@ -148,6 +154,50 @@ _AXIS_STOPWORDS: Final[frozenset[str]] = frozenset({"and", "the", "of", "or", "x
 _WORD_RE: Final[re.Pattern[str]] = re.compile(r"[a-z]+")
 
 
+@runtime_checkable
+class RenderRules(Protocol):
+    """What :class:`TemplateRenderer` actually needs from a prompt-set config.
+
+    **Why a Protocol and not the concrete class (added at P8).** The renderer reads exactly five
+    things off its config, and P8's red-team prompt set supplies all five while sharing almost no
+    other field with :class:`~margins.prompts.config.PromptSetConfig` -- it declares no template
+    files, because its frames are *generated* rather than read from disk. Widening
+    ``PromptSetConfig`` to cover both would have made ``templates`` optional, which is how a config
+    stops validating anything; that is the same argument that gave P4b its own
+    ``ExtractivePromptSetConfig``.
+
+    So the renderer is typed against the shape instead. ``PromptSetConfig`` satisfies this already
+    and P4a's behaviour is unchanged in every respect -- **the leakage guard, the article rule, the
+    ``compose_rank`` order and ``make_prompt_id`` are untouched.** The only thing that became
+    configurable is which ``benchmark`` label the renderer will accept items under, and that had to
+    become configurable because it is exactly the label the E3 static-vs-red-team comparison reads.
+    """
+
+    @property
+    def item_benchmark(self) -> str:
+        """The source label of the items this prompt set renders.
+
+        ``open_gen_templates`` for P4a's static frames, ``redteam`` for P8's generated ones. It is
+        a property of the prompt SET rather than an argument at the call site, so a caller cannot
+        render red-team frames under the static label and lose the E3 tag.
+        """
+
+    @property
+    def template_version(self) -> str:
+        """Stamped on every prompt and folded into every prompt id's digest preimage."""
+
+    @property
+    def decoding_key(self) -> str:
+        """Named decoding profile stamped on every prompt."""
+
+    @property
+    def carriers(self) -> tuple[CarrierSpec, ...]:
+        """The carrier nouns a composed descriptor attaches to."""
+
+    def article_for(self, phrase: str) -> str:
+        """The indefinite article for a composed descriptor phrase."""
+
+
 def _environment() -> Environment:
     """A strict, plain-text Jinja environment.
 
@@ -168,14 +218,25 @@ def _environment() -> Environment:
 # --------------------------------------------------------------------------------------
 
 
-def template_item_id(template_id: str) -> str:
-    """The :class:`~margins.schemas.Item` id for a template."""
-    return f"{TEMPLATE_ITEM_PREFIX}{template_id}"
+def template_item_id(template_id: str, *, benchmark: str = TEMPLATE_ITEM_BENCHMARK) -> str:
+    """The :class:`~margins.schemas.Item` id for a template.
+
+    ``benchmark`` defaults to the static P4a label, so every existing call site is unchanged. P8's
+    red-team frames pass ``benchmark="redteam"`` and get ``redteam/<frame_id>`` -- the same
+    ``<source>/<key>`` shape P4b already uses for ``crows_pairs/0000``, and deliberately built with
+    ``/`` because ``prompt_id`` joins its fields with ``::``.
+    """
+    return f"{benchmark}/{template_id}"
 
 
 def template_key(item: Item) -> str:
-    """The short template key behind an item id, for use in a ``prompt_id``."""
-    return item.id.removeprefix(TEMPLATE_ITEM_PREFIX)
+    """The short template key behind an item id, for use in a ``prompt_id``.
+
+    Derived from the item's **own** benchmark rather than from a module constant, so a red-team
+    item yields its frame key exactly as a static item yields its template key. Deriving it here
+    rather than taking a parameter means the key cannot disagree with the id it was cut from.
+    """
+    return item.id.removeprefix(f"{item.benchmark}/")
 
 
 def template_items(config: PromptSetConfig, files: Sequence[TemplateFile]) -> list[Item]:
@@ -205,8 +266,8 @@ def template_items(config: PromptSetConfig, files: Sequence[TemplateFile]) -> li
             )
         items.append(
             Item(
-                id=template_item_id(file.id),
-                benchmark=TEMPLATE_ITEM_BENCHMARK,
+                id=template_item_id(file.id, benchmark=config.item_benchmark),
+                benchmark=config.item_benchmark,
                 task_type=TaskType.OPEN_GEN,
                 payload={
                     "template_text": file.text,
@@ -344,7 +405,7 @@ class TemplateRenderer:
     you cannot assign "working-class Black" to a CrowS-Pairs item about religion.
     """
 
-    def __init__(self, config: PromptSetConfig, lattice: DeclaredLattice) -> None:
+    def __init__(self, config: RenderRules, lattice: DeclaredLattice) -> None:
         self._config = config
         self._lattice = lattice
         self._environment = _environment()
@@ -358,7 +419,7 @@ class TemplateRenderer:
     # ---------------------------------------------------------------- accessors
 
     @property
-    def config(self) -> PromptSetConfig:
+    def config(self) -> RenderRules:
         return self._config
 
     @property
@@ -408,11 +469,13 @@ class TemplateRenderer:
         return prepared
 
     def _check_item(self, item: Item) -> None:
-        if item.benchmark != TEMPLATE_ITEM_BENCHMARK:
+        expected = self._config.item_benchmark
+        if item.benchmark != expected:
             raise ValueError(
-                f"item {item.id!r} has benchmark {item.benchmark!r}; TemplateRenderer INJECTS a "
-                f"cell into a template and accepts only {TEMPLATE_ITEM_BENCHMARK!r} items. An "
-                "item whose cell must be DERIVED belongs to ExtractiveRenderer (P4b)."
+                f"item {item.id!r} has benchmark {item.benchmark!r}; this TemplateRenderer is "
+                f"configured for {expected!r} items. An item whose cell must be DERIVED belongs to "
+                "ExtractiveRenderer (P4b), and a red-team frame must be rendered under the "
+                "red-team prompt set so it keeps the benchmark label the E3 comparison reads."
             )
         if item.task_type is not TaskType.OPEN_GEN:
             raise ValueError(

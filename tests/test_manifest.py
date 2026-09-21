@@ -58,6 +58,15 @@ REQUIRED_FIELDS = {
     # committed manifest rather than from a gitignored Parquet. None for runs that declare no
     # significance, which is most of them.
     "stats",
+    # CONTRACT CHANGE 21 Sep 2026 (P8), same shape once more. The red-team prompt DISTRIBUTION is
+    # the contribution of P8, and a prompt set carries no record of which model proposed it, under
+    # what instruction, or what fraction of candidates the filter threw away. `docs/preregistration`
+    # section 11 deliberately does NOT pre-register that distribution, so the manifest is the only
+    # place it is pinned down. Carries the generator's resolved revision rather than its config
+    # name, for the same reason ScorerRecord carries a scorer's pin: a re-pinned generator is a
+    # different instrument producing a different distribution. None for runs that generate no
+    # frames, which is most of them.
+    "redteam",
 }
 
 FIXED_TIME = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)

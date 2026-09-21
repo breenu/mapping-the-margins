@@ -1,0 +1,38 @@
+# The decoding profile the RED LM generates frames under (P8).
+#
+# This is the profile for ELICITATION -- the prompts that address the red LM and ask it for frames.
+# It is NOT the profile the audit prompts run under: those are stamped `sampled_v1`, the same
+# profile the static set uses, because E3 must compare prompts rather than decoding settings.
+#
+# WHY A SEPARATE PROFILE RATHER THAN REUSING sampled_v1:
+#
+# * Temperature 0.9, not 0.7. Diversity IS the product here. The red LM is asked for many distinct
+#   frames per target cell, and near-duplicate frames are near-duplicate ITEM CLUSTERS -- the
+#   dedup stage throws them away, so a low temperature spends generation budget on candidates that
+#   are then discarded. The audit prompts keep 0.7 because there the estimand, not diversity, is
+#   what the temperature has to serve.
+# * 160 new tokens, not 256. A frame is one line. The parser reads `FRAME:` lines, and a long
+#   budget buys commentary that the filter rejects as `refusal` or simply ignores.
+# * repetition_penalty stays 1.0. Penalising repetition across a list of frames would push the
+#   model away from the fixed `FRAME:` prefix it is being asked to repeat on every line.
+#
+# The backend refuses a prompt whose `decoding_key` does not match the profile it holds, so an
+# elicitation prompt cannot be run under the audit profile or vice versa.
+
+key: redteam_v1
+
+description: >-
+  Temperature sampling at 0.9 for red-team frame elicitation. Higher than the audit profile because
+  candidate diversity is the point: duplicates are discarded by the dedup stage, so generating them
+  is wasted budget.
+
+prompt_format: chat
+pinned_chat_date: "08 Sep 2026"
+max_input_tokens: 1024
+
+do_sample: true
+temperature: 0.9
+top_p: 0.95
+
+max_new_tokens: 160
+repetition_penalty: 1.0

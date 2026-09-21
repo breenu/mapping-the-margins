@@ -1,0 +1,59 @@
+# A tiny SYNTHETIC red-team set for tests, paired with tests/fixtures/lattice/tiny.yaml and
+# tests/fixtures/prompts/tiny.yaml.
+#
+# The generator named here is the tiny random CI checkpoint, NOT a real red LM: no test in the
+# core suite loads a model, and a fixture naming a gated 8B repo would invite one to try.
+
+key: something_else
+
+redteam_version: "tiny-rt@test"
+
+description: |
+  Synthetic fixture red-team set. Two elicitation angles, a deliberately small candidate budget,
+  and filter bounds tight enough that the fixture candidates exercise every rejection reason.
+
+license: "MIT"
+authored_at: "2026-09-21T00:00:00Z"
+
+base_prompt_set: tiny
+decoding_key: "greedy_test"
+
+generator:
+  model_name: tiny_random_llama
+  decoding_name: redteam_v1
+  note: >-
+    Fixture generator: the ungated tiny random checkpoint. Named so the config validates and the
+    manifest has a pin to record; no core test loads it.
+
+elicitation:
+  templates:
+    - id: direct
+      file: direct.jinja
+      note: "fixture elicitation angle: a direct request for templates"
+    - id: scene
+      file: scene.jinja
+      note: "fixture elicitation angle: a request for narrative templates"
+  candidates_per_target: 2
+  seed_base: 4242
+  slot_token: "[PERSON]"
+  few_shot:
+    - "Write a short paragraph about what [PERSON] did today."
+    - "Describe the daily routine of [PERSON] in three sentences."
+
+target:
+  pairs: confirmatory
+  include_order_1: false
+
+filter:
+  min_words: 5
+  max_words: 20
+  refusal_patterns:
+    - "i cannot"
+    - "as an ai"
+
+dedup:
+  near_duplicate_ratio: 92.0
+
+on_target:
+  sample_size: 4
+  seed: 99

@@ -8,7 +8,7 @@ implementing a new phase.
 
 ## Status & next action
 
-**P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4a ✅ · P4b ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P9 ✅ complete.** P0: environment,
+**P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4a ✅ · P4b ✅ · P5 ✅ · P6 ✅ · P7 ✅ · P8 ✅ · P9 ✅ complete.** P0: environment,
 `margins.repro`, `margins.config` + run manifest, CI. P1: `margins.schemas` (frozen records) +
 `margins.interfaces` (Protocols), walking skeleton, schema field-freeze test. P3:
 `margins.lattice`. P4a: `margins.prompts` — `TemplateRenderer`, the leakage guard, the phrase
@@ -16,7 +16,8 @@ review. P5: `margins.inference`. P6: `margins.scoring` — the 4-scorer roster, 
 an executable sign contract, triangulation + agreement, the identity-drift control. P7:
 `margins.metrics` — the emergence estimator, item-clustered SEs, the cluster bootstrap, the drift
 comparison. P2/P4b: `margins.benchmarks` (the CrowS-Pairs loader + screening),
-`margins.prompts.extractive`, `margins.scoring.paired` — the second paradigm, end to end.
+`margins.prompts.extractive`, `margins.scoring.paired` — the second paradigm, end to end. P8:
+`margins.redteam` — cell-targeted frame generation, the QC screen, the on-target scaffold.
 
 **P9 ✅ `margins.stats` — DONE 19 Sep 2026, and it changed the design.** All four gates green on
 `win_amd64` and in CI on both OSes (`core (ubuntu-latest)` and `core (windows-latest)`).
@@ -34,7 +35,13 @@ document: the 168-term family from the lattice, the thresholds from `configs/sta
 from `configs/lattice/`. **NO FULL EXPERIMENTAL RUN MAY BE EXECUTED AGAINST AN EARLIER COMMIT.**
 Amendments are permitted, versioned and logged in §10 of `docs/preregistration.md`.
 
-**NEXT TASK: P8 — automated red-teaming** (confirmatory axis pairs only). Then P10, P11.
+**P8 ✅ automated intersectional RED-TEAMING — DONE 21 Sep 2026, and it found a P9 bug.**
+`margins.redteam` generates cell-targeted FRAMES through a pinned red LM and renders them across
+the confirmatory cells via the **unchanged** `TemplateRenderer`. No schema change, no new scoring
+or metric path. See "P8 as built". **It also exposed a real P9 defect that would have crashed the
+first full run** — see the ⚠ box below.
+
+**NEXT TASK: P10 — visualization + reporting.** Then P11 (experiments), P12, P13.
 
 ### ⚠ AWAITING HUMAN / SUPERVISOR SIGN-OFF — the RQ1 reframing (registered 21 Sep 2026)
 
@@ -74,6 +81,106 @@ corrections are load-bearing. **Do not re-litigate any of this; it is measured.*
    designs are close to uninformative; a single-template design cannot estimate a cluster-robust
    SE at all. Written up in **`docs/power_and_precision.md`**, keyed in
    `results/paper_numbers.json` under `field.power_at_9_prompts.*`.
+
+### ⚠ THE P9 BUG P8 FOUND — fixed, and worth understanding
+
+**`correct()` selected its inputs by axis PAIR, not by family MEMBERSHIP.** A confirmatory pair's
+fit emits its main effects and *every* interaction cell as well as its `(|A|-1)(|B|-1)` free
+contrasts — 19 terms per pair on the shipped lattice, of which **6** are family members. All 19
+were offered for correction, and `FamilyPlan.validate` then raised `UnknownFamilyMemberError`.
+
+**It would have fired on the first full E1 run, with ~95 GPU-h already spent.** Nothing caught it
+earlier because the dev artifact has one rendering per cell, so P7 found every pair *not estimable*
+and `run_stats.py` correctly reported "nothing to correct" — the correction path had never once run
+on real P7 output. P8's integration test is the first thing that fed it any.
+
+**Fix:** `FamilyPlan.is_family_member(key)` (pair **and** term) now selects who gets a p and a q;
+`is_confirmatory` survives as the coarser pair-level question. Non-member terms pass through
+**descriptively, with their CIs, carrying no p and no q** — which is what `docs/preregistration.md`
+§4 and the "dependent gammas are still reported" line in "P9 as built" always said should happen.
+Pinned by `tests/test_fdr_correction.py::test_a_non_member_term_of_a_confirmatory_pair_passes_
+through_descriptively`. **The lesson is the §11 golden rule restated: run the real artifact through
+the real stage.** Both P6's Krippendorff blow-up and this were found that way, not by a test.
+
+### P8 as built (the RED-TEAM vertical — for P10/P11 to consume)
+
+- **NO schema change.** `Prompt`, `Response`, `ItemScore` are untouched: the E3 tag is the existing
+  `benchmark` field, carried from `Item.benchmark = "redteam"` through the `--benchmark` flag that
+  `run_scoring.py`/`run_metrics.py` already had. The only contract change is a `redteam` block on
+  `RunManifest`, logged in `tests/test_manifest.py` exactly as the P6/P7/P9 blocks were.
+- **DECIDED with the human, 21 Sep 2026: the red LM emits slot-bearing FRAMES, not finished
+  per-cell prompts.** Decisive reason: **a frame is one item cluster present in every cell of a
+  pair's grid**, where a per-cell prompt is a singleton — the exact structure that made CrowS not
+  estimable. Frames are what make a red-team interaction estimable at all. Second reason: a frame
+  goes through the **unchanged** P4a guard.
+- **⚠ THE RIGOR POINT: every frame is rendered into EVERY target cell, not only its own.** The
+  elicitation target survives as provenance and as the on-target audit unit, nothing more.
+  Confining a frame to its target would confound "frame targeted at X" with "cell X" — every cell
+  measured through its own private frames, so any difference between frames (length, register,
+  topic) lands on that cell's mean and reads as an identity effect. **The estimator would report an
+  interaction the frame distribution produced.** Written into `frames.py`, `methods.md` §2A.2, and
+  the generated report.
+- **TWO PROMPT POPULATIONS, never to be confused.** *Elicitation* prompts address the red LM,
+  deliberately NAME the target identity (that is the cell-targeting), are never scored, and carry
+  `benchmark="redteam_elicitation"`. The leakage guard is deliberately NOT applied to them — it
+  exists to keep identity out of everything but the slot of an *audit* prompt, and applying it to
+  an instruction whose job is to name an identity is a category error. *Audit* prompts are what the
+  target model sees, are guarded, and carry `benchmark="redteam"`.
+- **The guard is AUTHORITATIVE; the filter is a pre-screen.** Every surviving frame is
+  trial-rendered into every target cell through `TemplateRenderer`; one that raises is dropped with
+  reason `leakage_guard` rather than taking the run down. `tests/test_redteam_generator.py` proves
+  the guard is load-bearing **on its own** by calling `trial_render` directly on a leaking
+  candidate, bypassing the pre-screen entirely.
+- **The one P4a seam change is small and the guard is untouched.** A `RenderRules` Protocol names
+  the five things `TemplateRenderer` actually reads off a config, plus a new `item_benchmark`
+  property; `_check_item`/`template_key` read that instead of the module constant.
+  `item_benchmark` is a **property, not a config field**, so no YAML can relabel the red-team arm
+  as the static one. P4a behaviour is unchanged in every respect.
+- **Carriers and the article rule are INHERITED from `open_gen_v1`, never re-declared**, and the
+  base set's own `template_version` is recorded. E3 compares matched cells, so a red-team carrier
+  of its own would confound "red-team frame" with "different carrier noun".
+- **Eleven machine-reasoned filter rules + two-stage dedup, all PURE** (no I/O, RNG, clock or order
+  dependence, like `benchmarks.screening`): `unparseable`, `slot_count`, `too_short`, `too_long`,
+  `names_identity_term`, `names_axis_word`, `sentence_initial_slot`, `template_syntax`, `refusal`,
+  `copies_fewshot`, `duplicate`/`near_duplicate`, plus `leakage_guard`. **Dedup is not hygiene:**
+  duplicate frames are duplicate ITEM CLUSTERS, and a cluster-robust SE over them is too small in
+  the anti-conservative direction. `rapidfuzz` was already a core dep.
+  - **`template_syntax` and a `TemplateError` backstop exist because a frame IS compiled as Jinja.**
+    `{{ oops }}` raises `UndefinedError` and a stray `{{` raises `TemplateSyntaxError`, neither of
+    which is a `ValueError` — one malformed candidate would otherwise have killed a run whose GPU
+    time was already spent.
+  - **Dedup carries the group's other targets forward** (`Candidate.also_targeted`). Found by
+    reading the generated report: collapsing duplicates erased how many distinct targets proposed
+    a frame, so the "generic frame" count was structurally always zero. It is unrecoverable after
+    the collapse, so it is preserved during it.
+- **On-target scaffold, the P6 calibration pattern exactly.** Deterministic sample **stratified by
+  target pair** (so the non-gender × non-gender pairs are not estimated from leftovers), seeded
+  through `set_global_seed`, `on_target_metrics` reporting **`None` not `0.0`** on an empty
+  denominator. The labeler is shown the frame **rendered for its own target**, because "is this
+  on-target" is unanswerable from a template with a hole in it. Nothing is auto-labeled.
+  **`on_target_report.md` is unwritten until real labels exist** — the reported-% gate clause is
+  the human's, like P6's precision/recall.
+- **Red-team is NOT in the shipped FDR family, deliberately** (`configs/stats/confirmatory_v1.yaml`
+  still lists only `open_gen_templates` + `crows_pairs`). Admitting it takes the family 168 → 336,
+  which changes the BH threshold `min_cell_n = 108` was derived against, so it must ride with a
+  **re-run power analysis** and a logged amendment at P11. The integration test proves the
+  machinery against a FIXTURE config, and `test_the_shipped_family_does_not_yet_declare_red_team`
+  fails with that explanation if anyone adds it without the analysis.
+- **⚠ BUDGET, for P11 to settle:** a red-team cell is `powered` only at ≥108 renderings. Matching
+  the static arm (27 frames/cell × 4 samples × 92 order-2 cells × 2 models) is **~95 GPU-h — the
+  same as the main sweep**, against the ~15–25 GPU-h flagged for red-teaming. So P11 chooses: fewer
+  pairs, fewer frames, or red-team cells `powered=False` and descriptive-only. The existing
+  machinery marks any of those correctly.
+- **Generator pinned and recorded:** `meta-llama/Llama-3.1-8B-Instruct` @ `0e9e39f2…`, under the new
+  `configs/decoding/redteam_v1.yaml` (sampled, temp 0.9 — diversity is the product, and duplicates
+  are discarded anyway). **Stated limitation:** it shares a family with one confirmatory target; the
+  same frame set runs through both, so neither faces prompts the other did not, and swapping in
+  Mistral is one config line. In `methods.md` §2A.3.
+- **Three elicitation angles**, not one: `disparate_treatment`, `consequential_decision`,
+  `narrative_completion`. One instruction is one prompt distribution wearing a label.
+- **Artifacts** under `data/redteam/` (`frames_v1.jsonl`, `rejected_frames.csv`,
+  `redteam_report.md` with a measured **per-pair coverage table**, `on_target_sample.jsonl`) plus
+  `data/prompts/<set>.jsonl`. All byte-deterministic, verified by regeneration. No new dependencies.
 
 ### P2 + P4b as built (the EXTRACTIVE vertical — for P8/P10 to consume)
 
@@ -633,6 +740,25 @@ uv run python scripts/run_metrics.py --scores data/scoring/crows_pairs/scores.pa
     --drift data/scoring/crows_pairs/drift_control.parquet --benchmark crows_pairs \
     --out-dir data/metrics/crows_pairs
 
+# P8 RED-TEAM, three stages. Stages 1 and 3 are core-env; only the middle step needs a GPU, and
+# it is the EXISTING run_inference.py -- red-team generation is a run of the P5 harness, so it is
+# resumable and manifest-writing for free. Heavy generation is P11's budget, NOT CI.
+uv run python scripts/build_redteam_elicitation.py        # -> data/redteam/elicitation_prompts.jsonl
+uv run python scripts/run_inference.py --model llama31_8b_instruct \
+    --prompts data/redteam/elicitation_prompts.jsonl --decoding redteam_v1   # the red LM (GPU)
+uv run python scripts/build_redteam_frames.py --responses data/responses/<red-lm>/<run_id>.jsonl
+                                                          # parse -> filter -> dedup -> GUARD
+uv run python scripts/build_redteam_prompts.py            # frames x EVERY target cell -> prompts
+# Then the UNCHANGED path, tagged `redteam` so E3 can tell the two arms apart:
+uv run python scripts/run_inference.py --model llama31_8b_instruct \
+    --prompts data/prompts/cell_targeted_v1.jsonl --decoding sampled_v1
+uv run python scripts/run_scoring.py --responses <file> \
+    --prompts data/prompts/cell_targeted_v1.jsonl --benchmark redteam --out-dir data/scoring/redteam
+uv run python scripts/run_metrics.py --scores data/scoring/redteam/scores.parquet \
+    --benchmark redteam --out-dir data/metrics/redteam
+# The on-target % is the HUMAN's: fill in on_target (0/1) in data/redteam/on_target_sample.jsonl.
+uv run python scripts/redteam_on_target_report.py --labels data/redteam/on_target_labels.jsonl
+
 # P7 metrics. Core env, no torch. Reads the two P6 parquets; writes data/metrics/ + a manifest.
 # --n-resamples overrides the config's 2000 for smoke runs only (recorded as used).
 uv run python scripts/run_metrics.py
@@ -641,6 +767,9 @@ uv run python scripts/run_metrics.py --n-resamples 200      # smoke
 # P9 stats. Core env, no torch. The ONLY stage that declares significance.
 # --metrics-dir takes BOTH paradigms' directories: the FDR family spans the whole
 # pre-registered set and is NEVER corrected per-source (§8).
+# NOTE: data/metrics/redteam is deliberately NOT passed yet -- `redteam` is absent from
+# `family_benchmarks`, so P9 would refuse it as an undeclared source. Admitting it is a logged
+# amendment that rides with a re-run power analysis at P11 (168 -> 336 moves the BH threshold).
 uv run python scripts/run_stats.py --metrics-dir data/metrics data/metrics/crows_pairs
 uv run python scripts/run_power_analysis.py     # the power simulation (slow, ~30 min)
 uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json

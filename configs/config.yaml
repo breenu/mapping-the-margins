@@ -63,6 +63,15 @@ stats_name: confirmatory_v1
 # a checksum in its manifest for a file it never opened. `scripts/build_crows_items.py` sets it.
 benchmark_name: null
 
+# Which RED-TEAM set this run generates from (added at P8). `redteam_name` for the same reason as
+# every `_name` above: `configs/redteam/` is a Hydra config GROUP.
+#
+# `null` by default, like `benchmark_name`: most runs generate no frames. The red-team build
+# scripts set it. Its sha256, and each elicitation template's, go into the manifest inputs --
+# because WHAT THE RED LM WAS ASKED is the red-team prompt distribution, which is the contribution
+# of P8 and the one thing about it a reproducer most needs to be able to check.
+redteam_name: null
+
 # Open decision #2 CLOSED at P5 (9 Sep 2026): Llama-3.1-8B-Instruct + Mistral-7B-Instruct-v0.3
 # confirmatory, Llama-3.2-1B-Instruct for dev. The pinned revision shas live in
 # `configs/model/<name>.yaml`, resolved by `scripts/pin_models.py` and never hand-authored. These

@@ -100,14 +100,17 @@ def run_stats_analysis(
     with_p = attach_wald_p(
         inputs.effects,
         df_by_series=cluster_df_by_series(inputs),
-        only=lambda effect: plan.is_confirmatory(effect_key(effect)),
+        # Membership, not the pair: a confirmatory pair's main effects and dependent
+        # interaction cells are OUTSIDE the family and must carry no p (see
+        # FamilyPlan.is_family_member, fixed 21 Sep 2026).
+        only=lambda effect: plan.is_family_member(effect_key(effect)),
     )
     # Pre-correction count, on the SAME alpha, so the "FDR reduces the significant count" gate
     # compares like with like.
     n_pre = sum(
         1
         for effect in with_p
-        if plan.is_confirmatory(effect_key(effect))
+        if plan.is_family_member(effect_key(effect))
         and effect.p is not None
         and effect.p <= config.fdr.alpha
     )
@@ -135,6 +138,10 @@ def run_stats_analysis(
         n_significant_pre=n_pre,
         n_significant_post=n_post,
         n_exploratory=sum(
-            1 for effect in corrected if not plan.is_confirmatory(effect_key(effect))
+            # Everything outside the family: exploratory pairs AND the confirmatory pairs'
+            # non-member terms. Both are reported descriptively and carry no significance.
+            1
+            for effect in corrected
+            if not plan.is_family_member(effect_key(effect))
         ),
     )

@@ -68,6 +68,7 @@ __all__ = [
     "default_prompt_config_dir",
     "extractive_config_from_mapping",
     "file_sha256",
+    "indefinite_article",
     "load_extractive_config",
     "load_prompt_config",
     "load_template_files",
@@ -111,6 +112,40 @@ def file_sha256(path: Path) -> str:
     which of the two locked environments checked the file out.
     """
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def indefinite_article(phrase: str, overrides: Mapping[str, str]) -> str:
+    """The indefinite article for ``phrase``: the vowel-*letter* rule plus an override table.
+
+    Factored out of :meth:`PromptSetConfig.article_for` at P8 so the red-team prompt set applies
+    the **same** rule rather than a second copy of it. Two copies of an article rule is two places
+    for "a older blind person" to appear, and a model's reaction to broken English is not the
+    estimand.
+
+    English actually follows the vowel-*sound*, so the letter rule is wrong for a small known set
+    of word beginnings (:data:`ARTICLE_RISKY_PREFIXES`). Those **raise** rather than guess.
+
+    Raises:
+        ValueError: If ``phrase`` is empty, or begins with a word where the letter rule is known to
+            fail and no override is declared.
+    """
+    words = phrase.split()
+    if not words:
+        raise ValueError("cannot choose an article for an empty descriptor phrase")
+    first = words[0].lower()
+
+    override = overrides.get(first)
+    if override is not None:
+        return override
+
+    if first.startswith(ARTICLE_RISKY_PREFIXES):
+        raise ValueError(
+            f"descriptor phrase {phrase!r} starts with {first!r}, where the vowel-letter rule "
+            "disagrees with English pronunciation ('a European', 'a university', 'an hour'). "
+            "Declare an explicit entry in `article_overrides` -- do not edit the descriptor, "
+            "which is pinned P3 provenance."
+        )
+    return "an" if first[0] in VOWEL_LETTERS else "a"
 
 
 def normalize_template_text(text: str) -> str:
@@ -277,6 +312,19 @@ class PromptSetConfig(BaseModel):
     # ---------------------------------------------------------------- accessors
 
     @property
+    def item_benchmark(self) -> str:
+        """The source label of the items this prompt set renders (the ``RenderRules`` Protocol).
+
+        A constant for the static set, and deliberately **not** a config field: a prompt set whose
+        source label could be edited in YAML could relabel the static paradigm as the red-team one,
+        which is precisely the distinction the E3 comparison rests on. P8's red-team prompt set is a
+        separate class returning ``"redteam"``.
+        """
+        from margins.prompts.render import TEMPLATE_ITEM_BENCHMARK
+
+        return TEMPLATE_ITEM_BENCHMARK
+
+    @property
     def axis_neutral_carriers(self) -> tuple[CarrierSpec, ...]:
         return tuple(carrier for carrier in self.carriers if carrier.axis_neutral)
 
@@ -300,23 +348,7 @@ class PromptSetConfig(BaseModel):
             ValueError: If ``phrase`` is empty, or begins with a word where the letter rule is
                 known to fail and no override is declared.
         """
-        words = phrase.split()
-        if not words:
-            raise ValueError("cannot choose an article for an empty descriptor phrase")
-        first = words[0].lower()
-
-        override = self.article_overrides.get(first)
-        if override is not None:
-            return override
-
-        if first.startswith(ARTICLE_RISKY_PREFIXES):
-            raise ValueError(
-                f"descriptor phrase {phrase!r} starts with {first!r}, where the vowel-letter rule "
-                "disagrees with English pronunciation ('a European', 'a university', 'an hour'). "
-                f"Declare an explicit entry in `article_overrides` -- do not edit the descriptor, "
-                "which is pinned P3 provenance."
-            )
-        return "an" if first[0] in VOWEL_LETTERS else "a"
+        return indefinite_article(phrase, self.article_overrides)
 
     def provenance_for(self, sha256: str) -> Provenance:
         """Provenance for a template file with content digest ``sha256``.

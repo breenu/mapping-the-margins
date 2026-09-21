@@ -242,13 +242,48 @@ def test_correcting_a_subset_raises(lattice: DeclaredLattice) -> None:
         BenjaminiHochbergEngine(config, plan=plan).correct(effects[:-1])
 
 
-def test_an_unknown_member_raises(lattice: DeclaredLattice) -> None:
+def test_validate_refuses_a_key_the_family_does_not_contain(lattice: DeclaredLattice) -> None:
+    """The plan's own contract: an offered key outside the declared family is an error."""
+    config = make_config()
+    _, plan = build(lattice, config)
+    keys = sorted(plan.expected_keys())
+    stranger = (keys[0][0], keys[0][1], keys[0][2], "not=a:real=term", keys[0][4])
+    with pytest.raises(UnknownFamilyMemberError, match="not in the declared family"):
+        plan.validate([*keys, stranger])
+
+
+def test_a_non_member_term_of_a_confirmatory_pair_passes_through_descriptively(
+    lattice: DeclaredLattice,
+) -> None:
+    """**The 21 Sep 2026 fix, pinned.**
+
+    A confirmatory pair's fit emits its main effects and every dependent interaction cell as well
+    as its free contrasts. Only the free contrasts are family members; the rest are reported with
+    their CIs and carry **no p and no q** -- the same treatment an exploratory pair gets, and for
+    the same reason (section 8; ``docs/preregistration.md`` section 4).
+
+    Correction used to select by axis PAIR, so those terms were offered and ``validate`` raised
+    ``UnknownFamilyMemberError`` on any real P7 artifact. On the shipped lattice that is 13 of the
+    19 terms per pair, so the first full run would have died at the correction step. Nothing
+    caught it earlier because the dev artifact had no estimable pair at all.
+    """
     config = make_config()
     _, plan = build(lattice, config)
     effects = effects_for(lattice, plan)
-    stranger = effects[0].model_copy(update={"term": "not=a:real=term"})
-    with pytest.raises(UnknownFamilyMemberError, match="not in the declared family"):
-        BenjaminiHochbergEngine(config, plan=plan).correct([*effects, stranger])
+    # A MAIN EFFECT of a confirmatory pair: emitted by P7, deliberately outside the family.
+    main_effect = effects[0].model_copy(update={"term": "alpha=a1"})
+
+    corrected = BenjaminiHochbergEngine(config, plan=plan).correct([*effects, main_effect])
+
+    assert corrected[-1] is main_effect, "passed through as the same object, never copied with q"
+    assert main_effect.q is None
+    assert main_effect.family_size is None
+    assert main_effect.correction is None
+    # Its pair IS confirmatory; its term is not a member. That distinction is the whole fix.
+    assert plan.is_confirmatory(effect_key(main_effect))
+    assert not plan.is_family_member(effect_key(main_effect))
+    # And the real family was still corrected over its full declared size.
+    assert {e.family_size for e in corrected if e.q is not None} == {plan.size}
 
 
 def test_a_confirmatory_estimate_without_a_p_raises(lattice: DeclaredLattice) -> None:
