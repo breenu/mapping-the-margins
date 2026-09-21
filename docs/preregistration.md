@@ -202,17 +202,22 @@ that could switch it to rows could quietly understate every variance.
 | 20 Sep 2026 | New harm type `stereotype_preference` for the extractive paradigm, with two reductions (`pll_total`, `pll_length_normalized`) under a **separate roster** | A paired measurement has no external instrument, so framing constraint 6 is satisfied by two reductions that fail differently (length/frequency confound) rather than by two classifiers. Separate roster because `scoring_hash` rides in every `score_id` |
 | 20 Sep 2026 | Extractive sequences are scored **raw**, with no chat template, under `pll_v1` | Matches how CrowS-Pairs log-likelihood is computed in the literature; wrapping would fold the per-model template into the measurement. The asymmetry with the generative path is recorded in `docs/methods.md`, not hidden |
 | 20 Sep 2026 | **No identity-drift control for the extractive paradigm** | Structural, not an omission: the control scores known-neutral text through the same instrument, and a log-probability difference has neither text nor instrument |
-| 21 Sep 2026 | **CrowS-Pairs' role is SCOPED: single-axis calibration + evidence that sentence-pair benchmarks structurally cannot support intersectional auditing. RQ1's cross-paradigm claim is scoped accordingly.** ⚠ **Awaiting human / supervisor sign-off.** | Measured on the pinned file, not discovered late: 1,352 kept items yield 198 order-1 cells and **3 order-2**, because each item is annotated with ONE attribute and an order-2 cell needs a second identity term present unchanged in BOTH sentences. Every confirmatory pair is therefore `estimable=False` and excused (§4), and the corrected family size is unchanged. RQ1's *interaction* comparison consequently runs **generation vs. red-team**; generation vs. extraction is compared at the single-axis / descriptive level and reported beside the structural finding. A result about the PARADIGM, never a null result about the model (`docs/methods.md` §2.5, `docs/PROJECT_CONTEXT.md` §1) |
+| 21 Sep 2026 | **CrowS-Pairs' role is SCOPED: single-axis calibration + evidence that sentence-pair benchmarks structurally cannot support intersectional auditing. RQ1's cross-paradigm claim is scoped accordingly.** ✅ **Signed off by the supervisor, 21 Sep 2026.** | Measured on the pinned file, not discovered late: 1,352 kept items yield 198 order-1 cells and **3 order-2**, because each item is annotated with ONE attribute and an order-2 cell needs a second identity term present unchanged in BOTH sentences. Every confirmatory pair is therefore `estimable=False` and excused (§4), and the corrected family size is unchanged. RQ1's *interaction* comparison consequently runs **generation vs. red-team**; generation vs. extraction is compared at the single-axis / descriptive level and reported beside the structural finding. A result about the PARADIGM, never a null result about the model (`docs/methods.md` §2.5, `docs/PROJECT_CONTEXT.md` §1) |
+
+| 21 Sep 2026 | **The red-team arm (P8) is DESCRIPTIVE: a subset at `powered=False`, carrying no p and no q. `redteam` stays OUT of `family_benchmarks`; the family stays 168 and `min_cell_n = 108` is unchanged.** | A powered red-team arm costs ~95 GPU-h — the same as the main sweep, against the ~15–25 GPU-h budgeted for it. Rather than spend the sweep's budget twice, red-team effects are reported with cluster-bootstrap CIs and no significance claim, and E3 is answered by the effect vector plus agreement against the static arm (§10's k = 2 machinery). **A budget-driven scope choice, stated as one** — never evidence that red-team effects are small. No re-run power analysis is needed, because the family size the design was derived against does not move |
 
 ## 11. What is NOT pre-registered here
 
 - The exploratory pair (`age x race_ethnicity`) and anything else outside the confirmatory set.
 - The red-team prompt distribution (P8), which is scoped to the confirmatory pairs but whose
-  generation is not fixed here. **Nor is red-team's FDR-family membership**: `redteam` is
-  deliberately absent from `family_benchmarks` in `configs/stats/confirmatory_v1.yaml`, so no
-  red-team estimate can currently carry a q. Admitting it is a logged amendment that must ride with
-  a **re-run power analysis**, because 168 -> 336 changes the Benjamini-Hochberg threshold that
-  `min_cell_n = 108` was derived against (§3). P8 builds and tests the machinery; the declaration
-  is a P11 decision taken against real red-team fits.
+  generation is not fixed here. It is recorded instead in `configs/redteam/cell_targeted_v1.yaml`
+  and in every red-team run manifest.
+- **Any red-team significance claim.** `redteam` is absent from `family_benchmarks` in
+  `configs/stats/confirmatory_v1.yaml` **by decision** (§10, 21 Sep 2026), so no red-team estimate
+  carries a p or a q: the arm is descriptive, and E3 is answered by the effect vector plus
+  agreement. The FDR machinery is built and tested against a fixture config, so admitting red-team
+  later is possible — but it takes the family 168 -> 336 and moves the Benjamini-Hochberg threshold
+  `min_cell_n = 108` was derived against (§3), making it a logged amendment that must ride with a
+  re-run power analysis.
 - Any claim about a second model family, additional benchmarks, or ablations A1-A3, all of which
   are out of scope unless ahead of schedule.

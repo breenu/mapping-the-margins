@@ -293,19 +293,28 @@ auto-labeled: a model judging model-generated prompts would be a scorer judging 
 A rate is reported as `None`, never `0.0`, where nothing in a stratum was labeled. An unaudited
 pair and a pair whose frames all missed are different facts.
 
-### 2A.6 Red-team is not yet in the FDR family, and that is deliberate
+### 2A.6 The red-team arm is DESCRIPTIVE, and carries no significance claim
 
-`configs/stats/confirmatory_v1.yaml` declares `open_gen_templates` and `crows_pairs` only.
-Admitting `redteam` changes the family from 168 to 336, which changes the Benjamini-Hochberg
-threshold that `min_cell_n = 108` was derived against — so it must ride with a **re-run power
-analysis** and a logged amendment (`docs/preregistration.md` §10–11), at P11 against real fits. The
-machinery is built and tested; the declaration is a pre-registration decision, not a config tweak.
+**Decided 21 Sep 2026.** A red-team cell would be `powered` only at ≥ 108 renderings, and matching
+the static arm (27 frames/cell × 4 samples over 92 order-2 cells × 2 models) costs roughly the same
+**~95 GPU-h as the main sweep** — far above the ~15–25 GPU-h budgeted for red-teaming. Rather than
+spend the main sweep's budget twice, the red-team arm runs as a **subset at `powered=False`**.
 
-**A budget fact that belongs with it.** A red-team cell is `powered` only at ≥ 108 renderings.
-Matching the static arm (27 frames/cell × 4 samples over 92 order-2 cells × 2 models) costs roughly
-the same ~95 GPU-h as the main sweep — well above the ~15–25 GPU-h budgeted for red-teaming. So the
-P11 red-team arm is a real design choice: fewer pairs, fewer frames, or red-team cells reported
-`powered=False` and descriptive-only. The existing machinery marks whichever is chosen correctly.
+The consequences are all in one direction, and all of them are good for the primary claim:
+
+- Red-team effects are reported **descriptively, with cluster-bootstrap CIs and no p and no q** —
+  the same treatment an exploratory pair gets, for the same reason.
+- `redteam` therefore stays **out** of `family_benchmarks` in
+  `configs/stats/confirmatory_v1.yaml`. The family stays at **168**, and the `min_cell_n = 108`
+  derived against that threshold is unchanged, so **no re-run power analysis is needed**.
+- **E3 is answered by the effect vector plus agreement** against the static arm — exactly the
+  machinery §10 already specifies for RQ1 at k = 2, and exactly what the scoping of RQ1 (§1 of
+  `docs/PROJECT_CONTEXT.md`) leans on. It is the same argument in both places: comparability across
+  sources is reported as a vector and an agreement statistic, never as a pooled number.
+
+This is a **budget-driven scope choice, stated as one**. It is not a claim that red-team effects
+are small or absent; it is a statement that this design cannot license a significance claim about
+them, and so does not make one. Underpowered cells are never load-bearing (invariant 4).
 
 ---
 

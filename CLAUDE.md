@@ -43,19 +43,39 @@ first full run** — see the ⚠ box below.
 
 **NEXT TASK: P10 — visualization + reporting.** Then P11 (experiments), P12, P13.
 
-### ⚠ AWAITING HUMAN / SUPERVISOR SIGN-OFF — the RQ1 reframing (registered 21 Sep 2026)
+### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
-The P2 measurement (3 order-2 cells out of 1,352 kept items) has been **registered as a scoping
-decision**, not just a caveat: CrowS-Pairs' role is **(a) single-axis calibration** and **(b)
-positive evidence that standard sentence-pair benchmarks structurally cannot support intersectional
-auditing**, and **RQ1's cross-paradigm claim is scoped accordingly** — the *interaction* comparison
-is generation vs. red-team, while generation vs. extraction is compared at the single-axis /
-descriptive level beside the structural finding.
+1. **A deliberate end-to-end smoke run on MULTI-RENDERING data, exercising the P9 correction
+   path.** Not the existing dev artifact: it has **one rendering per cell**, so every pair comes
+   back not estimable and `run_stats.py` correctly reports "nothing to correct" — meaning the
+   correction path is never executed. **That is exactly where the family-membership bug hid**
+   (see the ⚠ box below), and it survived four green phases because of it. The smoke run must
+   produce at least one *estimable* pair so `attach_wald_p` → `correct` → `ClaimGate` actually
+   run on real P7 output. §11's golden rule, made specific: the small-scale smoke test catches
+   ~90% of pipeline bugs at ~1% of the compute, but only for the paths it reaches.
+2. **The red-team P11 arm stays DESCRIPTIVE / subset — `powered=False`, not fully powered.** A
+   powered red-team arm costs ~95 GPU-h, the same as the main sweep and far above the ~15–25
+   GPU-h budgeted for it. So red-team cells are reported descriptively with CIs and carry no
+   significance claim, and `redteam` therefore stays **out** of `family_benchmarks` — which means
+   the 168-term family and the derived `min_cell_n = 108` are unchanged, and no re-run power
+   analysis is needed. E3 is answered by the effect vector plus agreement against the static arm.
+
+### ✅ SIGNED OFF — the CrowS / RQ1 reframing (registered + approved 21 Sep 2026)
+
+**Approved by the human 21 Sep 2026. This is the scoping the paper is written against; do not
+re-open it and do not re-litigate the wording.**
+
+The P2 measurement (3 order-2 cells out of 1,352 kept items) is a **scoping decision**, not a
+caveat: CrowS-Pairs' role is **(a) single-axis calibration** and **(b) positive evidence that
+standard sentence-pair benchmarks structurally cannot support intersectional auditing**, and
+**RQ1's cross-paradigm claim is scoped accordingly** — the *interaction* comparison is generation
+vs. red-team, while generation vs. extraction is compared at the single-axis / descriptive level
+beside the structural finding.
 
 Written into `docs/PROJECT_CONTEXT.md` §1 ("CrowS-Pairs' measured role"), §11's P2 gate row, §12's
-E2 bullet, and `docs/preregistration.md` §10 + §11. **This changes what RQ1 claims and is therefore
-the human's call, not Claude's.** Nothing downstream is blocked on it — the code and the artifacts
-are unaffected — but the paper text must not be written until it is signed off.
+E2 bullet, and `docs/preregistration.md` §10 + §11 — all as approved, unchanged. **It must never be
+reported as a null result about the model:** CrowS-Pairs cannot express an intersectional effect,
+which is a different statement from not finding one.
 
 ### ⚠ THE P9 FINDING — read this before touching the design
 
@@ -160,17 +180,17 @@ the real stage.** Both P6's Krippendorff blow-up and this were found that way, n
   on-target" is unanswerable from a template with a hole in it. Nothing is auto-labeled.
   **`on_target_report.md` is unwritten until real labels exist** — the reported-% gate clause is
   the human's, like P6's precision/recall.
-- **Red-team is NOT in the shipped FDR family, deliberately** (`configs/stats/confirmatory_v1.yaml`
-  still lists only `open_gen_templates` + `crows_pairs`). Admitting it takes the family 168 → 336,
-  which changes the BH threshold `min_cell_n = 108` was derived against, so it must ride with a
-  **re-run power analysis** and a logged amendment at P11. The integration test proves the
-  machinery against a FIXTURE config, and `test_the_shipped_family_does_not_yet_declare_red_team`
-  fails with that explanation if anyone adds it without the analysis.
-- **⚠ BUDGET, for P11 to settle:** a red-team cell is `powered` only at ≥108 renderings. Matching
-  the static arm (27 frames/cell × 4 samples × 92 order-2 cells × 2 models) is **~95 GPU-h — the
-  same as the main sweep**, against the ~15–25 GPU-h flagged for red-teaming. So P11 chooses: fewer
-  pairs, fewer frames, or red-team cells `powered=False` and descriptive-only. The existing
-  machinery marks any of those correctly.
+- **Red-team is NOT in the shipped FDR family — SETTLED 21 Sep 2026, not deferred.** A powered
+  red-team arm (27 frames/cell × 4 samples × 92 order-2 cells × 2 models) costs **~95 GPU-h, the
+  same as the main sweep**, against the ~15–25 GPU-h budgeted. So the P11 arm runs as a **subset at
+  `powered=False`**: red-team effects are descriptive, with CIs and **no p and no q**, `redteam`
+  stays out of `family_benchmarks`, the family stays **168**, `min_cell_n = 108` is unchanged and
+  **no re-run power analysis is needed**. E3 is answered by the effect vector + agreement against
+  the static arm — the same k = 2 machinery §10 already specifies. The integration test proves the
+  FDR machinery against a FIXTURE config (so it is ready if the budget ever changes), and
+  `test_the_shipped_family_does_not_yet_declare_red_team` fails with the full explanation if anyone
+  adds it. **State it as a budget-driven scope choice, never as evidence red-team effects are
+  small.**
 - **Generator pinned and recorded:** `meta-llama/Llama-3.1-8B-Instruct` @ `0e9e39f2…`, under the new
   `configs/decoding/redteam_v1.yaml` (sampled, temp 0.9 — diversity is the product, and duplicates
   are discarded anyway). **Stated limitation:** it shares a family with one confirmatory target; the

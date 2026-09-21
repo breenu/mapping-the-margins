@@ -452,19 +452,26 @@ def test_a_declared_red_team_source_that_produced_nothing_raises(
         )
 
 
-def test_the_shipped_family_does_not_yet_declare_red_team() -> None:
+def test_the_shipped_family_does_not_declare_red_team() -> None:
     """A guard on the pre-registration, not on the code.
 
-    Admitting ``redteam`` to the shipped family changes the Benjamini-Hochberg threshold that
-    ``min_cell_n = 108`` was derived against, so it must ride with a re-run power analysis and a
-    logged amendment (docs/preregistration.md sections 10-11). If someone adds it without that,
-    this fails and says why.
+    **Settled 21 Sep 2026:** the red-team arm runs as a SUBSET at ``powered=False``, because a
+    powered one costs ~95 GPU-h -- the same as the main sweep, against the ~15-25 budgeted. Its
+    effects are therefore descriptive, with CIs and no p and no q, and ``redteam`` stays out of
+    ``family_benchmarks``. The family stays at 168 and ``min_cell_n = 108`` is unchanged.
+
+    The FDR machinery above is still built and tested against a fixture config, so it is ready if
+    the budget ever changes -- but flipping the shipped config would take the family to 336 and
+    move the Benjamini-Hochberg threshold that ``min_cell_n`` was derived against, which makes it
+    a logged amendment riding with a re-run power analysis, not a config tweak.
     """
     from margins.stats.config import load_stats_config
 
     shipped = load_stats_config()
     assert REDTEAM_BENCHMARK not in shipped.fdr.family_benchmarks, (
-        "declaring redteam in the shipped family is a pre-registration amendment that must ride "
-        "with a re-run power analysis: 168 -> 336 changes the BH threshold min_cell_n=108 was "
-        "derived against. See docs/preregistration.md sections 10-11."
+        "the red-team arm is DESCRIPTIVE by decision (21 Sep 2026): a powered one costs ~95 GPU-h "
+        "against a ~15-25 GPU-h budget, so red-team effects carry no p and no q. Declaring "
+        "redteam here takes the family 168 -> 336 and moves the BH threshold min_cell_n=108 was "
+        "derived against, so it is a pre-registration amendment that must ride with a re-run "
+        "power analysis. See docs/methods.md 2A.6 and docs/preregistration.md sections 10-11."
     )
