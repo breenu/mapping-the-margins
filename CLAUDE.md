@@ -209,6 +209,15 @@ the real stage.** Both P6's Krippendorff blow-up and this were found that way, n
   triangulated fit term RAISES — its shape would be missing and it would vanish from the heatmap.
 - **Artifacts:** `figures/*.{pdf,svg}` + `figures/README.md`, `results/fixtures/*.{csv,tex}` +
   a README, and (after P11) `results/tables/*.{csv,tex}`.
+- **One stale run manifest was REMOVED, deliberately.** Re-running `scripts/build_crows_items.py`
+  to register the `crows.*` numbers produced a second manifest for the same ingestion, because
+  `ExperimentConfig` gained `redteam_name` at P8 and the config hash moved. The two recorded
+  **identical `input_checksums` and identical config values** — the same run under two schema
+  versions — so `build-crows-items-…-3344af7f11ed.json` was deleted (it survives in git at
+  `ba38e28`) and `…-d50690c0148c.json` is the one `results/paper_numbers.json` names. **The guard
+  that makes this safe already existed:** `test_manifest_paths_resolve_to_real_manifests` fails if
+  any paper number cites a manifest absent from the checkout, so deleting the wrong one is a red
+  suite, not a silent orphan.
 
 ### P8 as built (the RED-TEAM vertical — for P10/P11 to consume)
 
