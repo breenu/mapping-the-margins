@@ -43,6 +43,10 @@ first full run** — see the ⚠ box below.
 
 **P10 ✅ visualization + reporting — DONE 21 Sep 2026.** `margins.viz` + `margins.report`, seven
 figures, one command, every drawn number audited against a committed artifact. See "P10 as built".
+All four gates green on `win_amd64` and **in CI on both OSes 22 Sep 2026** (`core (ubuntu-latest)`
+and `core (windows-latest)`, run `35694991682` at commit `0f887b6`) — including the new
+`make_figures.py` step, so the one-command regeneration gate is confirmed on both platforms and
+not only on the dev box. **965 tests.**
 
 **NEXT TASK: P11 — experiments.** Then P12 (paper), P13 (release). **Before any full run, honour
 the two things decided 21 Sep 2026 below** — the multi-rendering smoke run that exercises the P9
