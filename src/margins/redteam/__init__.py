@@ -99,6 +99,7 @@ from margins.redteam.on_target import (
     sample_for_on_target,
     write_on_target_sample,
 )
+from margins.redteam.select import frame_stratum, select_frames
 
 __all__ = [
     "DEFAULT_REDTEAM_SET",
@@ -140,6 +141,7 @@ __all__ = [
     "elicitation_seeds",
     "frame_id",
     "frame_items",
+    "frame_stratum",
     "load_base_prompt_set",
     "load_redteam_config",
     "make_elicitation_prompt_id",
@@ -155,6 +157,7 @@ __all__ = [
     "render_rejected_csv",
     "sample_for_on_target",
     "screen_candidates",
+    "select_frames",
     "target_cells",
     "to_template_text",
     "trial_render",

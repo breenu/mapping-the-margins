@@ -30,6 +30,7 @@ from margins.metrics.export import (
     CELL_STATS_FILENAME,
     DEFAULT_METRICS_DIR,
     DRIFT_COMPARISON_FILENAME,
+    EFFECTS_FILENAME,
     FIT_REPORTS_FILENAME,
     FIT_TERMS_FILENAME,
     read_records,
@@ -50,6 +51,7 @@ from margins.report.tables import (
 )
 from margins.report.tables import read_table as read_result_table
 from margins.schemas import CellStat, EffectEstimate
+from margins.stats.config import DEFAULT_STATS, StatsConfig, load_stats_config
 from margins.stats.export import (
     CLAIMS_FILENAME,
     DEFAULT_STATS_DIR,
@@ -71,10 +73,55 @@ def _read_many(paths: list[Path], record: type):  # type: ignore[no-untyped-def]
     return out
 
 
+def _refuse_significance_on_descriptive(
+    effects: list[EffectEstimate], stats_config: StatsConfig
+) -> None:
+    """A descriptive arm may not carry a p or a q, nor masquerade as a family source.
+
+    The red-team arm is descriptive by decision (21 Sep 2026): its estimates go to the tables with
+    CIs and nothing else. An effect arriving here with significance metadata was set somewhere
+    other than P9 -- invariant 3 -- and a family-source effect arriving here would bypass the
+    correction it belongs in.
+    """
+    family_sources = set(stats_config.fdr.family_benchmarks)
+    for effect in effects:
+        if effect.benchmark in family_sources:
+            raise ValueError(
+                f"a {effect.benchmark!r} effect was passed as DESCRIPTIVE, but that benchmark is "
+                "an FDR-family source. Pass its directory with --metrics-dir, through P9."
+            )
+        carried = {
+            name: value
+            for name, value in (
+                ("p", effect.p),
+                ("q", effect.q),
+                ("family_size", effect.family_size),
+                ("correction", effect.correction),
+            )
+            if value is not None
+        }
+        if carried:
+            raise ValueError(
+                f"descriptive effect {effect.benchmark}/{effect.model}/{effect.term} carries "
+                f"{sorted(carried)}. Only StatsEngine sets significance (invariant 3), and a "
+                "descriptive arm never goes through it."
+            )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stats-dir", type=Path, default=DEFAULT_STATS_DIR)
     parser.add_argument("--metrics-dir", type=Path, nargs="+", default=[DEFAULT_METRICS_DIR])
+    parser.add_argument(
+        "--descriptive-metrics-dir",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="P7 directories of a DESCRIPTIVE arm (the red-team subset) that P9 never corrects. "
+        "Their uncorrected effects join the tables with no p and no q; any that carries either, or "
+        "whose benchmark is an FDR-family source, is refused.",
+    )
+    parser.add_argument("--stats", default=DEFAULT_STATS, help="Stats config naming the family.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_TABLE_DIR)
     parser.add_argument("--no-latex", action="store_true")
     args = parser.parse_args(argv)
@@ -93,15 +140,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     effects = read_records(effects_path, EffectEstimate)
+    descriptive = _read_many(
+        [d / EFFECTS_FILENAME for d in args.descriptive_metrics_dir], EffectEstimate
+    )
+    _refuse_significance_on_descriptive(descriptive, load_stats_config(args.stats))
+    effects = [*effects, *descriptive]
+
     claims = read_records(args.stats_dir / CLAIMS_FILENAME, SignificanceClaim)
     family = read_records(args.stats_dir / FAMILY_FILENAME, FamilyMember)
     decisions = read_records(args.stats_dir / DESCRIPTIVE_ONLY_FILENAME, DescriptiveOnlyDecision)
-    fit_terms = _read_many([d / FIT_TERMS_FILENAME for d in args.metrics_dir], FitTerm)
-    reports = _read_many([d / FIT_REPORTS_FILENAME for d in args.metrics_dir], FitReport)
-    comparisons = _read_many(
-        [d / DRIFT_COMPARISON_FILENAME for d in args.metrics_dir], DriftComparison
-    )
-    cells = _read_many([d / CELL_STATS_FILENAME for d in args.metrics_dir], CellStat)
+    metric_dirs = [*args.metrics_dir, *args.descriptive_metrics_dir]
+    fit_terms = _read_many([d / FIT_TERMS_FILENAME for d in metric_dirs], FitTerm)
+    reports = _read_many([d / FIT_REPORTS_FILENAME for d in metric_dirs], FitReport)
+    comparisons = _read_many([d / DRIFT_COMPARISON_FILENAME for d in metric_dirs], DriftComparison)
+    cells = _read_many([d / CELL_STATS_FILENAME for d in metric_dirs], CellStat)
 
     tables = {
         "emergence_effects": emergence_rows(effects, fit_terms, claims, family),

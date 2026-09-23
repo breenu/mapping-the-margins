@@ -11,7 +11,8 @@ later, to the frames the red LM writes back (``scripts/build_redteam_frames.py``
 Nothing here loads a model. To actually generate, run the EXISTING P5 harness against this file::
 
     uv run python scripts/run_inference.py --model llama31_8b_instruct \\
-        --prompts data/redteam/elicitation_prompts.jsonl --decoding redteam_v1
+        --prompts data/redteam/elicitation_prompts.jsonl --decoding redteam_v1 \\
+        --seeds <the candidates_per_target seeds this script prints>
 
 That is the whole point of elicitation prompts being ordinary ``Prompt`` records: red-team
 generation is resumable, content-addressed and manifest-writing because P5 already is.
@@ -103,10 +104,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {'seeds per prompt':<28} {len(seeds)}  {list(seeds)}")
     print(f"  {'planned generations':<28} {len(prompts) * len(seeds)}")
     print(f"\nwrote {out_path}")
+    # `--seeds` is NOT optional here. run_inference.py defaults to the config's single seed, which
+    # would draw ONE candidate per (template x target) instead of the configured
+    # `candidates_per_target` -- a sixth of the frame pool, silently. The hint omitted it until P11.
     print(
         "\nnext: uv run python scripts/run_inference.py "
         f"--model {config.generator.model_name} --prompts {out_path.as_posix()} "
-        f"--decoding {config.generator.decoding_name}"
+        f"--decoding {config.generator.decoding_name} "
+        f"--seeds {' '.join(str(seed) for seed in seeds)}"
     )
 
     if args.no_manifest:

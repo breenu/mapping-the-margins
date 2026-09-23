@@ -48,11 +48,13 @@ from margins.redteam import (
     FRAMES_FILENAME,
     default_elicitation_dir,
     default_redteam_config_dir,
+    frame_stratum,
     load_base_prompt_set,
     load_redteam_config,
     read_frames,
     redteam_inputs,
     render_audit_prompts,
+    select_frames,
     target_cells,
 )
 from margins.redteam.config import load_elicitation_files
@@ -85,6 +87,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Render into every lattice cell, not only the confirmatory targets. Off by default: "
         "gate P8 restricts red-teaming to the confirmatory axis pairs.",
     )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Render only this many frames, chosen round-robin over (elicitation angle x target "
+        "pair) strata in content order (P11's DESCRIPTIVE subset). Size it with "
+        "`scripts/run_p11.py budget`. Default: every screened frame.",
+    )
     parser.add_argument("--results-dir", type=Path, default=None)
     parser.add_argument("--run-name", default="build-redteam-prompts")
     parser.add_argument("--timestamp", type=_parse_timestamp, default=None)
@@ -105,6 +115,21 @@ def main(argv: list[str] | None = None) -> int:
     frames = read_frames(args.frames)
     if not frames:
         raise SystemExit(f"no frames in {args.frames}; run scripts/build_redteam_frames.py first")
+    n_screened = len(frames)
+    if args.max_frames is not None:
+        pair_of = {
+            cell.cell_id: (cell.axes[0][0], cell.axes[1][0])
+            for cell in lattice.cells()
+            if cell.order == 2
+        }
+        frames = select_frames(frames, args.max_frames, pair_of=pair_of)
+        selection_path = args.out_dir / f"{args.redteam}_frame_selection.csv"
+        selection_path.parent.mkdir(parents=True, exist_ok=True)
+        with selection_path.open("w", encoding="utf-8", newline="") as handle:
+            handle.write("frame_id,elicitation_template,axis_a,axis_b,target_cell_id\n")
+            for frame in frames:
+                angle, axis_a, axis_b = frame_stratum(frame, pair_of)
+                handle.write(f"{frame.frame_id},{angle},{axis_a},{axis_b},{frame.target_cell_id}\n")
 
     cells = lattice.cells() if args.all_cells else target_cells(config, lattice)
     prompts = render_audit_prompts(
@@ -127,7 +152,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"lattice_version:  {lattice.config.lattice_version}")
     print(f"base prompt set:  {config.base_prompt_set} ({base.template_version})")
     print("\nsummary")
-    print(f"  {'frames':<28} {len(frames)}")
+    print(f"  {'frames screened':<28} {n_screened}")
+    print(f"  {'frames rendered':<28} {len(frames)}")
+    if args.max_frames is not None:
+        print(
+            f"  (capped at --max-frames {args.max_frames}: the DESCRIPTIVE red-team subset, "
+            "powered=False by design)"
+        )
     print(f"  {'cells rendered into':<28} {len(cells)}")
     print(f"  {'carriers':<28} {len(prompt_set.carriers)}")
     print(f"  {'prompts':<28} {len(prompts)}")

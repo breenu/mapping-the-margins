@@ -24,6 +24,7 @@ Requires the ``inference`` extra. The 7-8B checkpoints never run on the Windows 
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -51,6 +52,7 @@ from margins.inference import (
 )
 from margins.lattice import DEFAULT_LATTICE
 from margins.lattice.config import default_lattice_config_dir
+from margins.orchestrate.preflight import batch_size_conflict, quant_reason
 from margins.prompts import (
     DEFAULT_EXTRACTIVE_SET,
     DEFAULT_PROMPT_SET,
@@ -119,6 +121,13 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_EXTRACTIVE_SET,
         help="Extractive prompt-set config name, used when the prompt file is pair_pll.",
     )
+    parser.add_argument(
+        "--allow-quant-fallback",
+        action="store_true",
+        help="Let a CONFIRMATORY model run at a quantization other than the requested one. "
+        "Debugging only, and recorded: a confirmatory run at the wrong quantization is not the "
+        "pre-registered measurement. The dev and CI models are never blocked.",
+    )
     args = parser.parse_args(argv)
 
     spec = load_model_config(args.model, config_dir=default_model_config_dir())
@@ -151,6 +160,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"--resume: no existing run for {spec.name}; starting a new one")
     if run_id is None:
         run_id = make_run_id(cfg, config_hash(cfg), datetime.now(UTC))
+    else:
+        # A resumed run must continue at the batch size it started with: batch size is part of the
+        # determinism scope, and the manifest (rewritten below) would otherwise name only the
+        # second of two batchings its responses were produced under.
+        conflict = batch_size_conflict(manifest_path(cfg, run_id), args.batch_size)
+        if conflict is not None:
+            parser.error(conflict)
 
     print(f"model      {spec.model_id}@{spec.revision}  ({spec.role})")
     print(f"decoding   {decoding.key}  hash={decoding.decoding_hash[:16]}...")
@@ -166,6 +182,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     if report.quant_fallback_reason:
         print(f"  NOTE: {report.quant_fallback_reason}")
+    # Checked BEFORE the manifest and before any generation: a confirmatory model that fell back
+    # from NF4 would otherwise run for days at a quantization that is not the recorded constant.
+    refusal = quant_reason(
+        requested=report.quant_requested,
+        actual=report.quant_actual,
+        fallback_reason=report.quant_fallback_reason,
+        role=spec.role,
+        allow_fallback=args.allow_quant_fallback,
+    )
+    if refusal is not None:
+        print(f"\nSTOP: {refusal}", file=sys.stderr)
+        return 2
+    if args.allow_quant_fallback and report.quant_actual != report.quant_requested:
+        print("  WARNING: --allow-quant-fallback in effect; this is not a confirmatory run.")
 
     # Manifest inputs: P4a's lattice + prompt set + frames, plus P5's checkpoint + decoding profile.
     #

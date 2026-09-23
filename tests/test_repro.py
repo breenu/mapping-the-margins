@@ -106,6 +106,77 @@ def test_module_functions_without_torch() -> None:
     assert set(fingerprint.thread_env) >= {"OMP_NUM_THREADS", "MKL_NUM_THREADS"}
 
 
+def test_gpu_facts_degrade_to_empty_without_nvidia_smi(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No driver binary is normal on the dev box and in CI: record nothing, and never raise."""
+    import subprocess
+
+    def missing(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError("nvidia-smi")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    fingerprint = environment_fingerprint()
+    assert fingerprint.cuda_devices == ()
+    assert fingerprint.nvidia_driver_version is None
+
+
+def test_gpu_facts_are_read_from_nvidia_smi(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The manifest must NAME the hardware: cross-host reproduction is metric-level only."""
+    import subprocess
+
+    from margins import repro
+
+    def fake(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert tuple(argv) == repro.NVIDIA_SMI_QUERY
+        stdout = "NVIDIA A100-SXM4-40GB, 40960 MiB, 550.54.15\nTesla T4, 15360 MiB, 550.54.15\n"
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    fingerprint = environment_fingerprint()
+    assert fingerprint.nvidia_driver_version == "550.54.15"
+    assert fingerprint.cuda_devices == ("NVIDIA A100-SXM4-40GB, 40960 MiB", "Tesla T4, 15360 MiB")
+
+
+def test_torch_cuda_facts_are_recorded_without_creating_a_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """torch's CUDA/cuDNN/BLAS are recorded; the device name only if a context ALREADY exists."""
+    from types import SimpleNamespace
+
+    from margins import repro
+
+    calls: list[str] = []
+
+    def device_name(index: int) -> str:
+        calls.append("name")
+        return "Fake GPU"
+
+    cuda = SimpleNamespace(
+        is_available=lambda: True,
+        is_initialized=lambda: False,
+        current_device=lambda: 0,
+        get_device_capability=lambda index: (8, 6),
+        get_device_name=device_name,
+    )
+    fake_torch = SimpleNamespace(
+        __version__="9.9.9",
+        get_num_threads=lambda: 4,
+        cuda=cuda,
+        version=SimpleNamespace(cuda="12.4"),
+        backends=SimpleNamespace(cudnn=SimpleNamespace(version=lambda: 90100)),
+        __config__=SimpleNamespace(show=lambda: "PyTorch built with:\n  - BLAS_INFO=mkl, X=1\n"),
+    )
+    monkeypatch.setattr(repro, "_torch_module", lambda: fake_torch)
+    fingerprint = environment_fingerprint()
+    assert fingerprint.torch_cuda_version == "12.4"
+    assert fingerprint.cudnn_version == 90100
+    assert fingerprint.torch_blas_info == "mkl"
+    assert fingerprint.cuda_device_in_use is None
+    assert calls == [], "reading the device name would have created a CUDA context"
+
+    monkeypatch.setattr(cuda, "is_initialized", lambda: True)
+    assert environment_fingerprint().cuda_device_in_use == "Fake GPU (cuda:0, sm_86)"
+
+
 def test_blas_backend_is_actually_identified() -> None:
     """The determinism note promises the BLAS backend is recorded, so a silent None is a bug.
 

@@ -22,6 +22,7 @@ import importlib
 import importlib.util
 import os
 import random
+import re
 from typing import Any, Final
 
 import numpy as np
@@ -86,6 +87,40 @@ class EnvironmentFingerprint(BaseModel):
     torch_cuda_available: bool | None = None
     blas_backend: str | None = None
     thread_env: dict[str, str | None] = Field(default_factory=dict)
+
+    # --- the accelerator (added at P11) -------------------------------------------------------
+    #
+    # The confirmatory sweep moved to a university GPU (open decision #8), which makes
+    # reproduction METRIC-level within a reported tolerance rather than bit-level. That scoping is
+    # only checkable if the manifest says what hardware produced the numbers, so these are recorded
+    # on every run. All default to None: the dev box and the core CI job have no GPU at all.
+    torch_blas_info: str | None = Field(
+        default=None,
+        description=(
+            "torch's OWN BLAS, parsed from torch.__config__.show(). `blas_backend` is numpy's, "
+            "which is not the library a model's matmuls run through."
+        ),
+    )
+    torch_cuda_version: str | None = Field(
+        default=None, description="The CUDA runtime torch was built against (torch.version.cuda)."
+    )
+    cudnn_version: int | None = None
+    nvidia_driver_version: str | None = Field(
+        default=None,
+        description="From `nvidia-smi`, because torch exposes no driver API. None if absent.",
+    )
+    cuda_devices: tuple[str, ...] = Field(
+        default=(),
+        description="Every visible GPU as '<name>, <total memory>', from `nvidia-smi`.",
+    )
+    cuda_device_in_use: str | None = Field(
+        default=None,
+        description=(
+            "The device torch actually initialised, with its compute capability. Read only when a "
+            "CUDA context already exists: creating one here would precede set_global_seed's "
+            "CUBLAS_WORKSPACE_CONFIG and silently weaken the determinism it sets up."
+        ),
+    )
 
 
 def _torch_module() -> Any | None:
@@ -217,15 +252,78 @@ def _blas_backend() -> str | None:
     return None
 
 
+#: ``nvidia-smi`` query for the facts torch cannot give: the driver, and every visible card.
+NVIDIA_SMI_QUERY: Final[tuple[str, ...]] = (
+    "nvidia-smi",
+    "--query-gpu=name,memory.total,driver_version",
+    "--format=csv,noheader",
+)
+
+
+def _nvidia_smi() -> tuple[tuple[str, ...], str | None]:
+    """``(devices, driver_version)`` from ``nvidia-smi``, or ``((), None)``. Never raises.
+
+    A subprocess rather than ``pynvml`` because pynvml is not a dependency, and a missing binary
+    (every machine without an NVIDIA driver, including CI) is the normal case, not an error.
+    """
+    import subprocess
+
+    try:
+        completed = subprocess.run(  # fixed argv, no shell
+            list(NVIDIA_SMI_QUERY), capture_output=True, text=True, timeout=15, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return (), None
+    if completed.returncode != 0:
+        return (), None
+    devices: list[str] = []
+    driver: str | None = None
+    for line in completed.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 3 or not parts[0]:
+            continue
+        devices.append(f"{parts[0]}, {parts[1]}")
+        driver = driver or parts[2]
+    return tuple(devices), driver
+
+
+def _torch_blas_info(torch: Any) -> str | None:
+    """The ``BLAS_INFO=`` entry of ``torch.__config__.show()``, e.g. ``mkl``."""
+    try:
+        shown = str(torch.__config__.show())
+    except (AttributeError, RuntimeError):  # pragma: no cover - needs a torch build
+        return None
+    # Real output buries it mid-line: "  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, ...".
+    match = re.search(r"\bBLAS_INFO=([^,\s]+)", shown)
+    return match.group(1) if match else None
+
+
+def _cuda_device_in_use(torch: Any) -> str | None:
+    """The initialised device's name and capability -- only if a CUDA context already exists."""
+    try:
+        if not torch.cuda.is_initialized():
+            return None
+        index = torch.cuda.current_device()
+        major, minor = torch.cuda.get_device_capability(index)
+        return f"{torch.cuda.get_device_name(index)} (cuda:{index}, sm_{major}{minor})"
+    except (AttributeError, RuntimeError, AssertionError):
+        return None
+
+
 def environment_fingerprint() -> EnvironmentFingerprint:
     """Collect the environment facts a reproducer needs to check the determinism claim.
 
-    Never raises. Absent ``torch`` yields ``None`` fields, which is the normal dev-box state.
+    Never raises. Absent ``torch`` yields ``None`` fields, which is the normal dev-box state, and
+    an absent ``nvidia-smi`` yields no devices and no driver, which is every machine without a GPU.
     """
     torch = _torch_module()
     torch_version: str | None = None
     torch_threads: int | None = None
     cuda_available: bool | None = None
+    torch_blas: str | None = None
+    torch_cuda: str | None = None
+    cudnn: int | None = None
+    in_use: str | None = None
     if torch is not None:
         torch_version = str(torch.__version__)
         try:
@@ -236,11 +334,27 @@ def environment_fingerprint() -> EnvironmentFingerprint:
             cuda_available = bool(torch.cuda.is_available())
         except (RuntimeError, AttributeError):  # pragma: no cover - needs a torch build
             cuda_available = None
+        torch_blas = _torch_blas_info(torch)
+        version = getattr(getattr(torch, "version", None), "cuda", None)
+        torch_cuda = None if version is None else str(version)
+        try:
+            raw = torch.backends.cudnn.version() if cuda_available else None
+            cudnn = None if raw is None else int(raw)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            cudnn = None
+        in_use = _cuda_device_in_use(torch)
 
+    devices, driver = _nvidia_smi()
     return EnvironmentFingerprint(
         torch_version=torch_version,
         torch_num_threads=torch_threads,
         torch_cuda_available=cuda_available,
         blas_backend=_blas_backend(),
         thread_env={var: os.environ.get(var) for var in _THREAD_ENV_VARS},
+        torch_blas_info=torch_blas,
+        torch_cuda_version=torch_cuda,
+        cudnn_version=cudnn,
+        nvidia_driver_version=driver,
+        cuda_devices=devices,
+        cuda_device_in_use=in_use,
     )

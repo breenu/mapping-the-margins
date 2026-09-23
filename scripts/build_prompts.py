@@ -11,6 +11,19 @@ config, and every template file. Before P4a a manifest recorded the experiment c
 same one ``scripts/build_lattice.py`` prints, so the two are checkably the same file.
 
 Nothing here loads a model. P4a is prompt generation only -- inference is P5.
+
+**``--decoding`` re-stamps the set for another decoding profile (added at P11).** The config
+declares ``decoding_key: greedy_v1``, but the confirmatory E1 arm runs under ``sampled_v1``
+(open decision #8), and the backend refuses a prompt whose key differs from the profile it holds.
+``decoding_key`` is part of the ``prompt_id`` preimage, so a re-stamped set carries different ids
+while its rendered TEXT is byte-identical -- the key enters the digest, never the template. The
+flag overrides the key at build time rather than editing the config, so the greedy set stays
+available for E4's temperature-0 arm and the override is recorded in the manifest (as
+``decoding_name`` and the profile's sha256) instead of living in a second, drift-prone config file.
+This is the mechanism ``scripts/build_rho_sample.py`` already used, which is why the rho pilot's
+ids are E1's ids. Write a re-stamped set to its own ``--out-dir``; both sets share a filename.
+
+    uv run python scripts/build_prompts.py --decoding sampled_v1 --out-dir data/prompts/e1_sampled
 """
 
 from __future__ import annotations
@@ -26,6 +39,11 @@ from margins.config import (
     manifest_path,
     write_run_manifest,
 )
+from margins.inference.decoding import (
+    DECODING_INPUT_KEY,
+    default_decoding_config_dir,
+    load_decoding_config,
+)
 from margins.lattice import DEFAULT_LATTICE, DeclaredLattice, load_lattice_config
 from margins.lattice.config import default_lattice_config_dir
 from margins.prompts import (
@@ -38,7 +56,7 @@ from margins.prompts import (
     prompt_set_inputs,
     template_items,
 )
-from margins.prompts.config import TEMPLATE_DIRNAME
+from margins.prompts.config import TEMPLATE_DIRNAME, file_sha256
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -66,15 +84,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-manifest", action="store_true", help="Skip the run manifest (exports only)."
     )
+    parser.add_argument(
+        "--decoding",
+        default=None,
+        help="Re-stamp every prompt's decoding_key with this profile (must exist in "
+        "configs/decoding/). Default: the prompt-set config's own key.",
+    )
+    parser.add_argument("--decoding-config-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     lattice_dir = args.lattice_config_dir or default_lattice_config_dir()
     prompt_dir = args.prompt_config_dir or default_prompt_config_dir()
+    decoding_dir = args.decoding_config_dir or default_decoding_config_dir()
     lattice_file = lattice_dir / f"{args.lattice}.yaml"
     prompt_file = prompt_dir / f"{args.prompt_set}.yaml"
 
     lattice = DeclaredLattice(load_lattice_config(args.lattice, config_dir=lattice_dir))
     prompt_config = load_prompt_config(args.prompt_set, config_dir=prompt_dir)
+    if args.decoding is not None:
+        # Validated BEFORE anything is written: a key naming no profile would produce a prompt set
+        # that no backend could ever run, and the error would only surface on a GPU.
+        decoding = load_decoding_config(args.decoding, config_dir=decoding_dir)
+        prompt_config = prompt_config.model_copy(update={"decoding_key": decoding.key})
     files = load_template_files(prompt_config, prompt_dir / TEMPLATE_DIRNAME)
 
     items = template_items(prompt_config, files)
@@ -104,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     overrides = [f"run_name={args.run_name}", f"lattice_name={args.lattice}"]
+    if args.decoding is not None:
+        overrides.append(f"decoding_name={prompt_config.decoding_key}")
     if args.results_dir is not None:
         overrides.append(f"results_dir={args.results_dir.as_posix()}")
     cfg = load_experiment_config(
@@ -113,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     inputs = prompt_set_inputs(
         lattice_config_path=lattice_file, prompt_config_path=prompt_file, files=files
     )
+    if args.decoding is not None:
+        inputs[DECODING_INPUT_KEY] = file_sha256(decoding_dir / f"{args.decoding}.yaml")
     manifest = write_run_manifest(cfg, inputs=inputs, timestamp=args.timestamp)
 
     print("\nrun manifest")

@@ -637,20 +637,69 @@ def _git(args: list[str], repo_root: Path) -> str | None:
     return completed.stdout.strip()
 
 
-def _git_state(repo_root: Path) -> tuple[str | None, bool | None]:
+def dirty_status_lines(status: str, *, ignore_untracked_under: str | None = None) -> list[str]:
+    """The ``git status --porcelain`` lines that make a worktree dirty.
+
+    **Untracked files under ``ignore_untracked_under`` do not count** (added at P11). That
+    directory is the run-manifest directory: a multi-stage run writes one manifest per stage, each
+    one untracked until it is committed, and counting them would stamp ``git_dirty=True`` on every
+    manifest after the first -- making the flag say nothing about whether the CODE matched the SHA,
+    which is the only thing it exists to say. An untracked manifest cannot change what ran. A
+    MODIFIED tracked file under the same directory still counts, as does any untracked file
+    anywhere else.
+    """
+    prefix = None
+    if ignore_untracked_under:
+        prefix = ignore_untracked_under.replace("\\", "/").strip("/") + "/"
+    lines: list[str] = []
+    for line in status.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip().strip('"').replace("\\", "/")
+        if prefix is not None and line.startswith("??") and path.startswith(prefix):
+            continue
+        lines.append(line)
+    return lines
+
+
+def _git_state(
+    repo_root: Path, *, ignore_untracked_under: str | None = None
+) -> tuple[str | None, bool | None]:
     """Return ``(sha, dirty)`` for the worktree at ``repo_root``.
 
     Both are ``None`` outside a git worktree. Inside one they are reported independently,
     because they can legitimately disagree: a freshly initialised repo with an unborn HEAD has
     no SHA (``None``) while still being dirty (``True``). Coupling them would force one of the
-    two to be a lie.
+    two to be a lie. See :func:`dirty_status_lines` for the one exemption.
     """
     if _git(["rev-parse", "--is-inside-work-tree"], repo_root) != "true":
         return None, None
     sha = _git(["rev-parse", "HEAD"], repo_root)
-    status = _git(["status", "--porcelain"], repo_root)
-    dirty = None if status is None else bool(status)
+    # `-uall` lists untracked files individually, so the exemption can match them by path rather
+    # than by an untracked parent directory that might also hold something else.
+    status = _git(["status", "--porcelain", "-uall"], repo_root)
+    dirty = (
+        None
+        if status is None
+        else bool(dirty_status_lines(status, ignore_untracked_under=ignore_untracked_under))
+    )
     return sha, dirty
+
+
+def git_state(
+    repo_root: Path | None = None, *, ignore_untracked_under: str | None = None
+) -> tuple[str | None, bool | None]:
+    """Public ``(sha, dirty)`` for the repository, as :func:`write_run_manifest` records it."""
+    root = repo_root if repo_root is not None else Path(__file__).resolve().parents[2]
+    return _git_state(root, ignore_untracked_under=ignore_untracked_under)
+
+
+def _relative_to(path: Path, root: Path) -> str | None:
+    """``path`` relative to ``root`` as a posix string, or None if it lies outside it."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
 
 
 def make_run_id(cfg: ExperimentConfig, config_digest: str, timestamp: datetime) -> str:
@@ -714,7 +763,10 @@ def write_run_manifest(
     digest = config_hash(cfg)
     resolved_run_id = run_id if run_id is not None else make_run_id(cfg, digest, created)
     root = repo_root if repo_root is not None else Path(__file__).resolve().parents[2]
-    git_sha, git_dirty = _git_state(root)
+    git_sha, git_dirty = _git_state(
+        root,
+        ignore_untracked_under=_relative_to(cfg.results_dir / cfg.manifest.manifest_subdir, root),
+    )
 
     manifest = RunManifest(
         run_id=resolved_run_id,
