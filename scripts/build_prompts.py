@@ -91,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         "configs/decoding/). Default: the prompt-set config's own key.",
     )
     parser.add_argument("--decoding-config-dir", type=Path, default=None)
+    parser.add_argument(
+        "--pair",
+        nargs=2,
+        default=None,
+        metavar=("AXIS_A", "AXIS_B"),
+        help="Render only this CONFIRMATORY pair's order-2 grid (E4's sensitivity subset). Each "
+        "prompt is byte-identical to its row in the full set: a prompt id digests its own "
+        "template, cell, carrier, decoding key and text, never the other cells rendered beside it.",
+    )
     args = parser.parse_args(argv)
 
     lattice_dir = args.lattice_config_dir or default_lattice_config_dir()
@@ -110,7 +119,17 @@ def main(argv: list[str] | None = None) -> int:
 
     items = template_items(prompt_config, files)
     renderer = TemplateRenderer(prompt_config, lattice)
-    prompts = renderer.render(items, lattice.cells())
+    cells = lattice.cells()
+    if args.pair is not None:
+        wanted = frozenset(args.pair)
+        if wanted not in {frozenset(pair) for pair in lattice.config.confirmatory_pairs}:
+            parser.error(f"--pair {args.pair} is not a confirmatory pair of {args.lattice}")
+        cells = [
+            cell
+            for cell in cells
+            if cell.order == 2 and frozenset(axis for axis, _ in cell.axes) == wanted
+        ]
+    prompts = renderer.render(items, cells)
 
     prompts_path, fill_audit, phrase_audit = export_prompt_set(
         lattice, prompt_config, prompts, files, args.out_dir
@@ -121,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"decoding_key:     {prompt_config.decoding_key}  (resolved at P5: configs/decoding/)")
     print("\nsummary")
     print(f"  {'templates':<32} {len(files)}")
-    print(f"  {'cells':<32} {len(lattice.cells())}")
+    print(f"  {'cells':<32} {len(cells)}")
     print(f"  {'carriers':<32} {len(prompt_config.carriers)}")
     print(f"  {'prompts':<32} {len(prompts)}")
     print(f"  {'unique prompt ids':<32} {len({p.prompt_id for p in prompts})}")

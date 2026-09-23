@@ -28,8 +28,10 @@ from margins.schemas import IdentityCell, Prompt
 
 __all__ = [
     "SMOKE_FIGURE_BANNER",
+    "E4Expectation",
     "SmokeCheck",
     "SmokeVerdict",
+    "check_e4_arms",
     "check_smoke_pass",
     "pair_cells",
     "prompt_carrier",
@@ -147,6 +149,58 @@ class SmokeVerdict:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class E4Expectation:
+    """What one E4 arm's smoke response file must contain."""
+
+    name: str
+    directory: Path
+    n_responses: int
+    decoding_key: str
+    temperature: float
+    seeds: tuple[int, ...]
+
+
+def check_e4_arms(expectations: Sequence[E4Expectation]) -> SmokeCheck:
+    """Every E4 arm generated what it should, under the profile it names.
+
+    Read off the response files: the count, the decoding key, the temperature ACTUALLY recorded on
+    each response, and the seeds. A profile that silently fell back to another temperature would
+    pass a count check and fail this one.
+    """
+    from margins.inference.harness import read_responses
+
+    problems: list[str] = []
+    found: list[str] = []
+    for arm in expectations:
+        files = sorted(arm.directory.glob("*.jsonl")) if arm.directory.is_dir() else []
+        if len(files) != 1:
+            problems.append(f"{arm.name}: {len(files)} run files in {arm.directory}")
+            continue
+        responses = read_responses(files[0])
+        keys = {r.decoding_key for r in responses}
+        temperatures = {r.temperature for r in responses}
+        seeds = tuple(sorted({r.seed for r in responses}))
+        if len(responses) != arm.n_responses:
+            problems.append(f"{arm.name}: {len(responses)} responses, expected {arm.n_responses}")
+        if keys != {arm.decoding_key}:
+            problems.append(
+                f"{arm.name}: decoding keys {sorted(keys)}, expected {arm.decoding_key}"
+            )
+        if temperatures != {arm.temperature}:
+            problems.append(f"{arm.name}: temperatures {sorted(temperatures)}")
+        if seeds != tuple(sorted(arm.seeds)):
+            problems.append(f"{arm.name}: seeds {seeds}, expected {tuple(sorted(arm.seeds))}")
+        found.append(
+            f"{arm.name} {len(responses)} @ T={arm.temperature} x {len(arm.seeds)} seed(s)"
+        )
+    return SmokeCheck(
+        "E4 arms generated under their own profiles",
+        bool(expectations) and not problems,
+        "; ".join(problems) if problems else ", ".join(found),
+    )
+
+
 def check_smoke_pass(
     *,
     open_gen_metrics_dir: Path,
@@ -157,6 +211,7 @@ def check_smoke_pass(
     open_gen_benchmark: str,
     crows_benchmark: str,
     correction: str,
+    e4: Sequence[E4Expectation] = (),
 ) -> SmokeVerdict:
     """Read the smoke run's artifacts back and evaluate the pass criterion clause by clause.
 
@@ -275,7 +330,11 @@ def check_smoke_pass(
         b3_detail = f"{len(with_p)}/{len(corrected)} corrected family terms carry p_permutation"
     checks.append(SmokeCheck("B3 permutation p on every corrected term", b3_ok, b3_detail))
 
-    # 6. The figure exists in every vector format.
+    # 6. The E4 arms generated under their own profiles (when the run drove them).
+    if e4:
+        checks.append(check_e4_arms(e4))
+
+    # 7. The figure exists in every vector format.
     absent = [path for path in figure_paths if not path.is_file()]
     checks.append(
         SmokeCheck(

@@ -1,0 +1,29 @@
+# E4's temperature-1.0 arm (RQ4, sensitivity), added at P11 (23 Sep 2026).
+#
+# IDENTICAL to sampled_v1 in every field except `temperature` (0.7 -> 1.0) and the key. That is the
+# point of the profile: E4 isolates the TEMPERATURE variable, so top_p (0.9), max_new_tokens,
+# repetition_penalty, the chat format and the pinned chat date are held fixed. A test asserts the
+# two profiles differ in exactly those two fields, so neither can drift away from the other.
+#
+# E4's three decoding arms on the S1 subset (class x race, both confirmatory models):
+#   temperature 0.0  greedy_v1       ONE seed -- greedy is deterministic, so more seeds would be
+#                                    identical outputs (pre-reg §10 clarification, 23 Sep 2026)
+#   temperature 0.7  sampled_v1      REUSED from E1's 4 seeds -- nothing is regenerated
+#   temperature 1.0  this profile    3 distinct seeds
+
+key: sampled_t10_v1
+
+description: >-
+  Temperature sampling at 1.0, with every other setting equal to sampled_v1. The high-temperature
+  point of E4's grid {0.0, 0.7, 1.0}; 0.7 is E1's own profile.
+
+prompt_format: chat
+pinned_chat_date: "08 Sep 2026"
+max_input_tokens: 512
+
+do_sample: true
+temperature: 1.0
+top_p: 0.9
+
+max_new_tokens: 256
+repetition_penalty: 1.0

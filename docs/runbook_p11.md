@@ -107,7 +107,8 @@ uv run python scripts/run_p11.py prepare
 ```
 
 This fetches the pinned word list and CrowS-Pairs dataset, checks their digests, and renders the
-E1 prompt set: 2,970 prompts at `data/prompts/e1_sampled/prompts_v1.jsonl`.
+prompt sets: E1's 2,970 prompts at `data/prompts/e1_sampled/prompts_v1.jsonl`, and E4's two
+432-prompt files at `data/prompts/e4_sampled_t10/` and `data/prompts/e4_greedy/`.
 
 ### A8. VERIFY that each model loads at NF4 on this GPU. Do not skip this.
 
@@ -160,6 +161,8 @@ pipeline on this GPU:
 
 - one confirmatory pair's full grid (age × class, 12 cells) × 3 prompts × 3 samples = 108
   generations, plus 40 CrowS-Pairs items;
+- the two **E4** arms (temperature 1.0, and greedy) on their first 8 prompts: 32 generations, using
+  the exact prompt files and decoding settings the full E4 run will use;
 - then scoring → metrics → **FDR correction** + **B3 permutation test** → **claim gate** →
   **one figure**.
 
@@ -171,7 +174,7 @@ costs about an hour instead of days of GPU time.
 uv run python scripts/run_p11.py smoke --model llama31_8b_instruct
 ```
 
-It takes roughly **30–60 minutes**: most of that is the 108 generations, plus a few minutes of
+It takes roughly **40–75 minutes**: most of that is the 140 generations, plus a few minutes of
 scoring. Everything it writes goes under `data/smoke/`; it cannot touch the real results.
 
 ### PASS criterion
@@ -187,7 +190,8 @@ passes only if all of these hold:**
 | 4 | **ClaimGate ran on every corrected term** | The significance gate ran. Its verdict here is `underpowered`, and **that is the expected, correct verdict** at smoke size |
 | 5 | The CrowS-Pairs members are **excused as not estimable** | The second paradigm joins the family without crashing it |
 | 6 | **B3 permutation p on every corrected term** | The independent permutation test ran on the item-level scores and its p reached every claim row |
-| 7 | The emergence figure is written as PDF + SVG, with its traceability audit clean | The last link: a figure drawn from corrected output |
+| 7 | **E4 arms generated under their own profiles** | Each E4 arm produced the expected count, and every response RECORDS the right decoding profile, temperature (1.0 / 0.0) and seeds |
+| 8 | The emergence figure is written as PDF + SVG, with its traceability audit clean | The last link: a figure drawn from corrected output |
 
 **A run that prints `NOTHING TO CORRECT` is a FAIL**, however cleanly it exits. It means the
 correction path was never reached, which is exactly what this run exists to rule out.
@@ -205,11 +209,15 @@ instead of from scratch, for example:
 uv run python scripts/run_p11.py smoke --model llama31_8b_instruct --from-stage scoring
 ```
 
-The stages are `prompts`, `inference`, `scoring`, `metrics`, `stats`, `tables`, `figure`, `verdict`.
+The stages are `prompts`, `inference`, `e4`, `scoring`, `metrics`, `stats`, `tables`, `figure`,
+`verdict`.
 
 ---
 
-## C. The full E1 sweep
+## C. The full sweep: E1, CrowS-Pairs, then E4
+
+Run it in this order: **E1** (C2) → **CrowS-Pairs** (C2) → **E4** (C7) → then the red-team pass
+(section D).
 
 E1 is the main experiment: all 2,970 prompts (27 prompts × 110 identity cells), each sampled
 **4 times** at the pre-registered seeds `20260908 20260909 20260910 20260911`. That is
@@ -316,11 +324,47 @@ the real batch size of 8.
 | E1, Llama-3.1-8B | 11,880 | **~46 GPU-hours** |
 | E1, Mistral-7B | 11,880 | **~49 GPU-hours** |
 | CrowS-Pairs, per model | ~1,350 scored pairs, no generation | minutes |
+| E4 (C7), Llama-3.1-8B | 1,728 | **~6.7 GPU-hours** |
+| E4 (C7), Mistral-7B | 1,728 | **~7.1 GPU-hours** |
 | Red-team (section D), both models | see D | ~20 GPU-hours (budgeted) |
 
-At T4 speed each model's E1 is about **2 days of continuous GPU**, or about 4 half-day bookings. A
-modern 24 GB card at batch 8 should be several times faster; trust the measured `budget` output
-over this table.
+At T4 speed each model's E1 is about **2 days of continuous GPU**, or about 4 half-day bookings;
+E4 adds under 7 hours per model. A modern 24 GB card at batch 8 should be several times faster;
+trust the measured `budget` output over this table.
+
+### C7. E4: the sensitivity arms (after E1 and CrowS-Pairs)
+
+E4 asks how much the results move when only the decoding **temperature** changes. It uses one
+identity pair, **class × race** (16 cells × 27 prompts = 432 prompts), through **both** models, at
+three temperatures:
+
+| Temperature | Decoding profile | Seeds | Generated here? |
+|---|---|---|---|
+| 0.0 (greedy) | `greedy_v1` | **1** (`20260908`). Greedy output is the same for every seed | yes: 432 per model |
+| 0.7 | `sampled_v1` | E1's 4 seeds | **no**: reused from E1, which already covers these prompts |
+| 1.0 | `sampled_t10_v1` (identical to `sampled_v1` except the temperature) | 3 (`20260908 20260909 20260910`) | yes: 1,296 per model |
+
+So E4 **generates 1,728 responses per model** and regenerates nothing E1 already made.
+
+```bash
+uv run python scripts/run_p11.py e4 --model llama31_8b_instruct
+uv run python scripts/run_p11.py e4 --model mistral7b_instruct_v03
+```
+
+Each `e4` step runs the temperature-1.0 arm, then the greedy arm. It is resumable exactly like E1
+(section C3): re-run the identical command. Done means **1,296** lines in
+`data/responses/e4_t10/<model>/` and **432** in `data/responses/e4_greedy/<model>/`.
+
+The underlying commands:
+
+```bash
+uv run python scripts/run_inference.py --model llama31_8b_instruct --prompts data/prompts/e4_sampled_t10/prompts_v1.jsonl --decoding sampled_t10_v1 --seeds 20260908 20260909 20260910 --batch-size 8 --out-dir data/responses/e4_t10 --run-name e4-t10-llama31_8b_instruct --resume
+uv run python scripts/run_inference.py --model llama31_8b_instruct --prompts data/prompts/e4_greedy/prompts_v1.jsonl --decoding greedy_v1 --seeds 20260908 --batch-size 8 --out-dir data/responses/e4_greedy --run-name e4-greedy-llama31_8b_instruct --resume
+uv run python scripts/run_inference.py --model mistral7b_instruct_v03 --prompts data/prompts/e4_sampled_t10/prompts_v1.jsonl --decoding sampled_t10_v1 --seeds 20260908 20260909 20260910 --batch-size 8 --out-dir data/responses/e4_t10 --run-name e4-t10-mistral7b_instruct_v03 --resume
+uv run python scripts/run_inference.py --model mistral7b_instruct_v03 --prompts data/prompts/e4_greedy/prompts_v1.jsonl --decoding greedy_v1 --seeds 20260908 --batch-size 8 --out-dir data/responses/e4_greedy --run-name e4-greedy-mistral7b_instruct_v03 --resume
+```
+
+The two E4 prompt files were built by `prepare` (step A7).
 
 ---
 
@@ -400,6 +444,11 @@ uv run python scripts/run_p11.py process --no-redteam
 5. the five headline figures.
 
 The underlying commands are in the command list at the end of this document.
+
+**`process` does not touch the E4 responses.** They are generated in this session and travel with
+`data/responses/`. The E4 sensitivity analysis runs afterwards: it needs no GPU and is not part of
+this procedure. Just make sure `data/responses/e4_t10/` and `data/responses/e4_greedy/` are in what
+you hand back (they are, if you copy `data/responses`).
 
 If it stops partway, re-run from the stage that failed:
 
@@ -562,13 +611,20 @@ Smoke run (section B). **Must print `SMOKE PASS` before anything below:**
 uv run python scripts/run_p11.py smoke --model llama31_8b_instruct
 ```
 
-Full E1 (section C). Each step is resumable by re-running it:
+Full E1 and CrowS-Pairs (section C). Each step is resumable by re-running it:
 
 ```bash
 uv run python scripts/run_p11.py e1 --model llama31_8b_instruct
 uv run python scripts/run_p11.py e1 --model mistral7b_instruct_v03
 uv run python scripts/run_p11.py crows --model llama31_8b_instruct
 uv run python scripts/run_p11.py crows --model mistral7b_instruct_v03
+```
+
+E4 sensitivity arms (section C7), after E1 and CrowS-Pairs. Resumable:
+
+```bash
+uv run python scripts/run_p11.py e4 --model llama31_8b_instruct
+uv run python scripts/run_p11.py e4 --model mistral7b_instruct_v03
 ```
 
 Red-team, descriptive (section D):
@@ -595,6 +651,8 @@ uv run python scripts/fetch_crows_pairs.py --fetch-pinned
 uv run python scripts/build_crows_items.py --no-manifest --no-paper-numbers
 uv run python scripts/build_crows_prompts.py --no-manifest
 uv run python scripts/build_prompts.py --prompt-set open_gen_v1 --decoding sampled_v1 --out-dir data/prompts/e1_sampled --run-name build-prompts-e1-sampled
+uv run python scripts/build_prompts.py --prompt-set open_gen_v1 --decoding sampled_t10_v1 --pair socioeconomic_class race_ethnicity --out-dir data/prompts/e4_sampled_t10 --run-name build-prompts-e4-t10
+uv run python scripts/build_prompts.py --prompt-set open_gen_v1 --decoding greedy_v1 --pair socioeconomic_class race_ethnicity --out-dir data/prompts/e4_greedy --run-name build-prompts-e4-greedy
 ```
 
 What `redteam-elicit` runs underneath, besides the generation command in section D:

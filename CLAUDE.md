@@ -51,7 +51,7 @@ not only on the dev box. **965 tests.**
 **P11 ORCHESTRATION ✅ READY — AWAITING THE LAB RUN (23 Sep 2026).** `scripts/run_p11.py` +
 `margins.orchestrate` + **`docs/runbook_p11.md`** (the exact-command lab procedure). No real 8B
 generation has run; that happens on the university GPU, following the runbook. See "P11
-orchestration as built". **1007 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
+orchestration as built". **1016 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
 decisions below are now built in: the smoke run is `run_p11.py smoke` and MUST PASS first, and the
 red-team arm is a descriptive `--max-frames` subset.
 
@@ -200,9 +200,21 @@ the real stage.** Both P6's Krippendorff blow-up and this were found that way, n
   logged in pre-reg §10: with two carriers per frame, template-only blocks would exchange across a
   second source of variation. The smoke run gained a 7th clause, "B3 permutation p on every
   corrected term".
-- **Also not covered by the runbook:** E4 (sensitivity subset) — PRICED 23 Sep 2026, awaiting the
-  human's scope decision (see the P11 hand-off) — and R2, deliberately out of this run (a
-  lightweight subset rerun later). `make_figures --only essential` in `process` because the two supporting figures need E4's
+- **E4 BUILT INTO THIS RUN (approved 23 Sep 2026, ~13.8 GPU-h at T4 speed).** Subset S1 =
+  class × race (16 cells × 27 = 432 prompts), BOTH models. Temperature 0.7 is **E1's own
+  `sampled_v1` × 4 seeds, reused, never regenerated**; 1.0 = new `configs/decoding/sampled_t10_v1`
+  (identical to `sampled_v1` but the temperature, pinned by a test) × 3 seeds `20260908–10`; 0.0 =
+  `greedy_v1` × **one** seed. The P11Config validator ENFORCES the rule: sampled arms need ≥ 3
+  seeds, a greedy arm exactly 1, and no arm may regenerate E1's profile. Prompt files come from
+  `build_prompts.py --pair` (new: one confirmatory pair's grid, byte-identical text to E1's rows),
+  built by `prepare`. `run_p11.py e4 --model …` generates the two new arms (resumable, preflighted);
+  `budget` prints E4 hours. The smoke run has an `e4` stage (both arms, first 8 prompts, the lab's
+  own prompt files/profiles) and an 8th clause that reads the temperature ACTUALLY recorded on each
+  response. Logged as a pre-reg §10 clarification. **⚠ NOT BUILT: the E4 ANALYSIS** (scoring +
+  metrics per arm, the `sensitivity` table, fig6). It is CPU-only post-run work; `process` does not
+  touch E4 responses yet. It carries one decision to ask first: standardization across temperature
+  arms (per arm, like per model, vs pooled within model).
+- **R2 stays out of this run** (a lightweight subset rerun later).
   tables.
 
 ### P10 as built (the FIGURES + TABLES — for P11/P12 to consume)
@@ -982,6 +994,7 @@ uv run python scripts/run_p11.py budget                   # GPU-h + red-team --m
 uv run python scripts/run_p11.py smoke --model llama31_8b_instruct        # MUST PASS first
 uv run python scripts/run_p11.py e1 --model llama31_8b_instruct           # then mistral7b_…
 uv run python scripts/run_p11.py crows --model llama31_8b_instruct        # then mistral7b_…
+uv run python scripts/run_p11.py e4 --model llama31_8b_instruct           # then mistral7b_…
 uv run python scripts/run_p11.py redteam-elicit
 uv run python scripts/run_p11.py redteam-prompts --max-frames <N from budget>
 uv run python scripts/run_p11.py redteam-audit --model llama31_8b_instruct

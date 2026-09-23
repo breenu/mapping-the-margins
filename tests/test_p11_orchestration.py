@@ -417,6 +417,8 @@ def _every_planned_command(cfg) -> list[plan.Command]:  # type: ignore[no-untype
         *plan.prepare_commands(cfg),
         *(plan.e1_inference(cfg, m) for m in cfg.e1.models),
         *(plan.crows_inference(cfg, m) for m in cfg.e1.models),
+        *(c for m in cfg.e1.models for c in plan.e4_inference(cfg, m)),
+        *(plan.e4_prompt_build(cfg, arm) for arm in cfg.e4.arms),
         *plan.redteam_elicitation_commands(
             cfg,
             generator=redteam.generator.model_name,
@@ -429,6 +431,7 @@ def _every_planned_command(cfg) -> list[plan.Command]:  # type: ignore[no-untype
         *plan.process_commands(cfg, responses=responses),
         plan.smoke_prompt_build(cfg, smoke),
         *plan.smoke_inference(cfg, DEV_MODEL, smoke),
+        *plan.smoke_e4_commands(cfg, DEV_MODEL, smoke),
         *plan.smoke_stage_commands(
             cfg, "scoring", smoke, responses={"open_gen": "a.jsonl", "crows": "b.jsonl"}
         ),
@@ -659,3 +662,128 @@ def test_frame_selection_is_stratified_content_ordered_and_capped() -> None:
         select_frames([*frames, _frame("f0", "x", "nope")], 2, pair_of=pair_of)
     with pytest.raises(ValueError):
         select_frames(frames, 0, pair_of=pair_of)
+
+
+# ---------------------------------------------------------------------------------------------
+# E4: the sensitivity arms (approved into this run 23 Sep 2026)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_e4_declares_the_approved_design(cfg) -> None:  # type: ignore[no-untyped-def]
+    """S1 = class x race, both models; T=1.0 x 3 seeds + greedy x 1; T=0.7 reused from E1."""
+    from margins.inference import load_decoding_config
+
+    assert frozenset(cfg.e4.pair) == frozenset(("socioeconomic_class", "race_ethnicity"))
+    assert cfg.e4.reuses_e1_decoding == cfg.e1.decoding == "sampled_v1"
+    arms = {arm.name: arm for arm in cfg.e4.arms}
+    assert set(arms) == {"t10", "greedy"}
+    assert arms["t10"].seeds == cfg.e1.seeds[:3]
+    assert len(arms["greedy"].seeds) == 1
+    # Each arm's KIND matches what its profile actually does.
+    for arm in cfg.e4.arms:
+        profile = load_decoding_config(arm.decoding)
+        assert profile.do_sample is (arm.kind == "sampled")
+    assert load_decoding_config("sampled_t10_v1").temperature == 1.0
+
+
+@pytest.mark.parametrize(
+    ("kind", "seeds", "message"),
+    [
+        ("greedy", (1, 2, 3), "exactly ONE seed"),  # greedy x3 = identical outputs
+        ("sampled", (1, 2), ">= 3 distinct seeds"),
+    ],
+)
+def test_e4_seed_rule_is_enforced(kind: str, seeds: tuple[int, ...], message: str) -> None:
+    from margins.orchestrate.config import E4DecodingArm
+
+    with pytest.raises(ValueError, match=message):
+        E4DecodingArm(name="x", kind=kind, decoding="d", seeds=seeds, prompts_dir=Path("p"))
+
+
+def test_e4_may_not_regenerate_the_reused_e1_arm(cfg) -> None:  # type: ignore[no-untyped-def]
+    from margins.orchestrate.config import E4Arm, E4DecodingArm
+
+    clash = E4DecodingArm(
+        name="t07", kind="sampled", decoding="sampled_v1", seeds=(1, 2, 3), prompts_dir=Path("p")
+    )
+    with pytest.raises(ValueError, match="REUSED"):
+        E4Arm(pair=cfg.e4.pair, reuses_e1_decoding="sampled_v1", arms=(clash,))
+
+
+def test_e4_prompts_are_the_e1_prompts_of_the_pair_restamped(
+    cfg,
+    lattice,
+    sampled_set: Path,
+    tmp_path: Path,  # type: ignore[no-untyped-def]
+) -> None:
+    """Same text, same cells, byte for byte -- only the decoding key (and so the id) differs."""
+    arm = next(arm for arm in cfg.e4.arms if arm.name == "t10")
+    command = plan.e4_prompt_build(cfg, arm, out_dir=tmp_path)
+    assert _script("build_prompts").main([*command.argv, "--no-manifest"]) == 0
+    e4 = read_prompts(tmp_path / "prompts_v1.jsonl")
+    cells = {c.cell_id for c in pair_cells(lattice, cfg.e4.pair)}
+    e1 = [p for p in read_prompts(sampled_set) if p.cell_id in cells]
+    assert len(e4) == len(e1) == 432
+    assert [(p.cell_id, p.rendered_text) for p in e4] == [(p.cell_id, p.rendered_text) for p in e1]
+    assert {p.decoding_key for p in e4} == {"sampled_t10_v1"}
+
+
+def test_the_e4_step_generates_only_the_new_arms(cfg, capture_parse) -> None:  # type: ignore[no-untyped-def]
+    commands = plan.e4_inference(cfg, "mistral7b_instruct_v03")
+    parsed = {_parses(c).decoding: _parses(c) for c in commands}
+    assert set(parsed) == {"sampled_t10_v1", "greedy_v1"}  # never sampled_v1: that is E1's
+    assert parsed["sampled_t10_v1"].seeds == [20260908, 20260909, 20260910]
+    assert parsed["greedy_v1"].seeds == [20260908]
+    assert all(ns.resume for ns in parsed.values())
+    assert {ns.out_dir for ns in parsed.values()} == {
+        Path("data/responses/e4_t10"),
+        Path("data/responses/e4_greedy"),
+    }
+
+
+def test_e4_costs_what_was_approved(cfg) -> None:  # type: ignore[no-untyped-def]
+    """432 prompts x (3 + 1) = 1,728 generations per model: ~13.8 GPU-h at T4 speed, both models."""
+    n = 432 * sum(len(arm.seeds) for arm in cfg.e4.arms)
+    hours = sum(project_gpu_hours(s, n) for s in cfg.pilot_sec_per_generation.values())
+    assert n == 1728
+    assert hours == pytest.approx(13.824)
+
+
+def _write_responses(directory: Path, *, n: int, decoding: str, temperature: float, seeds) -> None:  # type: ignore[no-untyped-def]
+    from margins.schemas import Response
+
+    directory.mkdir(parents=True)
+    lines = []
+    for seed in seeds:
+        for i in range(n):
+            response = Response(
+                response_id=f"r{seed}-{i}",
+                prompt_id=f"p{i}",
+                model_id="m",
+                model_revision="abc",
+                seed=seed,
+                temperature=temperature,
+                decoding_key=decoding,
+                decoding_hash="h",
+                quant="none",
+                text="t",
+            )
+            lines.append(json.dumps(response.model_dump(mode="json"), sort_keys=True))
+    (directory / "run.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_the_e4_smoke_clause_reads_the_temperature_actually_recorded(tmp_path: Path) -> None:
+    from margins.orchestrate.smoke import E4Expectation, check_e4_arms
+
+    good = tmp_path / "good"
+    _write_responses(good, n=8, decoding="sampled_t10_v1", temperature=1.0, seeds=(1, 2, 3))
+    expect = E4Expectation("t10", good, 24, "sampled_t10_v1", 1.0, (1, 2, 3))
+    assert check_e4_arms([expect]).passed
+
+    fell_back = tmp_path / "fell_back"
+    _write_responses(fell_back, n=8, decoding="sampled_t10_v1", temperature=0.7, seeds=(1, 2, 3))
+    check = check_e4_arms([E4Expectation("t10", fell_back, 24, "sampled_t10_v1", 1.0, (1, 2, 3))])
+    assert not check.passed and "temperatures" in check.detail
+    assert not check_e4_arms(
+        [E4Expectation("g", tmp_path / "none", 8, "greedy_v1", 0.0, (1,))]
+    ).passed

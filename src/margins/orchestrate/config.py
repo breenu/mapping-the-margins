@@ -11,7 +11,7 @@ reads them, the runbook is written against them, and a test fails if the runbook
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -21,6 +21,8 @@ __all__ = [
     "DEFAULT_P11",
     "CrowsArm",
     "E1Arm",
+    "E4Arm",
+    "E4DecodingArm",
     "P11Config",
     "RedTeamArm",
     "SmokeSettings",
@@ -63,6 +65,59 @@ class E1Arm(BaseModel):
         return _distinct_seeds(seeds)
 
 
+class E4DecodingArm(BaseModel):
+    """One generated E4 temperature arm."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1)
+    kind: Literal["sampled", "greedy"]
+    decoding: str = Field(min_length=1)
+    seeds: tuple[int, ...]
+    prompts_dir: Path
+
+    @field_validator("seeds")
+    @classmethod
+    def _check_seeds(cls, seeds: tuple[int, ...]) -> tuple[int, ...]:
+        return _distinct_seeds(seeds)
+
+    @model_validator(mode="after")
+    def _seed_rule(self) -> E4DecodingArm:
+        # Pre-reg §10 clarification (23 Sep 2026): the >= 3-seed rule is for SAMPLED arms. A
+        # greedy arm has exactly one seed, because more would be identical outputs presented as
+        # independent samples.
+        if self.kind == "greedy" and len(self.seeds) != 1:
+            raise ValueError(
+                f"E4 arm {self.name!r} is greedy and must have exactly ONE seed, got {self.seeds}: "
+                "greedy decoding is deterministic, so extra seeds are identical outputs"
+            )
+        if self.kind == "sampled" and len(self.seeds) < 3:
+            raise ValueError(f"E4 sampled arm {self.name!r} needs >= 3 distinct seeds")
+        return self
+
+
+class E4Arm(BaseModel):
+    """E4, the sensitivity subset. The 0.7 arm is E1's, reused; only these arms generate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    pair: tuple[str, str]
+    reuses_e1_decoding: str = Field(min_length=1)
+    arms: tuple[E4DecodingArm, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _distinct_arms(self) -> E4Arm:
+        names = [arm.name for arm in self.arms]
+        decodings = [arm.decoding for arm in self.arms]
+        if len(set(names)) != len(names) or len(set(decodings)) != len(decodings):
+            raise ValueError("E4 arms must have distinct names and distinct decoding profiles")
+        if self.reuses_e1_decoding in decodings:
+            raise ValueError(
+                f"{self.reuses_e1_decoding!r} is E1's profile and is REUSED, never regenerated"
+            )
+        return self
+
+
 class CrowsArm(BaseModel):
     """The extractive arm. Declared-family source, expected to be excused as not estimable."""
 
@@ -102,6 +157,7 @@ class SmokeSettings(BaseModel):
     seeds: tuple[int, ...] = Field(min_length=2)
     crows_limit: int = Field(ge=1)
     n_resamples: int = Field(ge=50)
+    e4_limit: int = Field(ge=1)
 
     @field_validator("seeds")
     @classmethod
@@ -127,6 +183,7 @@ class P11Config(BaseModel):
     p11_version: str = Field(min_length=1)
     lattice: str = Field(min_length=1)
     e1: E1Arm
+    e4: E4Arm
     crows: CrowsArm
     redteam: RedTeamArm
     smoke: SmokeSettings

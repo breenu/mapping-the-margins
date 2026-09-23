@@ -15,7 +15,8 @@ key: p11_v1
 
 # VERSION HISTORY
 #   p11_v1@2026-09-23  initial P11 declaration: E1 seeds, the per-model scoring layout, the
-#                      descriptive red-team subset, and the multi-rendering smoke run.
+#                      descriptive red-team subset, and the multi-rendering smoke run. Same day,
+#                      before any lab run: the E4 sensitivity arms added (approved scope).
 p11_version: "p11_v1@2026-09-23"
 
 lattice: confirmatory_v1
@@ -39,6 +40,33 @@ e1:
 
   # Confirmatory models, in the order the runbook runs them.
   models: [llama31_8b_instruct, mistral7b_instruct_v03]
+
+e4:
+  # E4, the sensitivity arm (RQ4). APPROVED 23 Sep 2026 into this lab run, priced at ~13.8 GPU-h at
+  # T4 speed on top of E1's ~95.
+  #
+  # Subset S1: the class x race grid -- the pair rho was measured on, and the largest (4 x 4 = 16
+  # cells x 27 prompts = 432 prompts) -- through BOTH confirmatory models, so a sensitivity claim
+  # cannot be met with "does the other model behave the same?".
+  #
+  # The temperature grid {0.0, 0.7, 1.0}:
+  #   0.7  REUSED from E1: sampled_v1 x E1's 4 seeds on these same 432 prompts. Nothing regenerated.
+  #   1.0  sampled_t10_v1 (sampled_v1 with ONLY the temperature changed) x 3 distinct seeds.
+  #   0.0  greedy_v1 x ONE seed. Greedy is deterministic, so more seeds would be identical outputs
+  #        (pre-reg §10 clarification: the >= 3-seed rule applies to SAMPLED arms).
+  pair: [socioeconomic_class, race_ethnicity]
+  reuses_e1_decoding: sampled_v1
+  arms:
+    - name: t10
+      kind: sampled
+      decoding: sampled_t10_v1
+      seeds: [20260908, 20260909, 20260910]
+      prompts_dir: data/prompts/e4_sampled_t10
+    - name: greedy
+      kind: greedy
+      decoding: greedy_v1
+      seeds: [20260908]
+      prompts_dir: data/prompts/e4_greedy
 
 crows:
   # The extractive arm (CrowS-Pairs). Not an intersectional estimate: every confirmatory pair is
@@ -80,6 +108,10 @@ smoke:
   seeds: [20260908, 20260909, 20260910]
   crows_limit: 40
   n_resamples: 200
+  # The smoke run also drives the two E4 arms, through the SAME prompt files and decoding profiles
+  # the lab run uses, on their first `e4_limit` prompts -- enough to prove each profile loads and
+  # generates, not to measure anything.
+  e4_limit: 8
 
 # Seconds per generation MEASURED by the W2 Kaggle timing pilot (Tesla T4, NF4, batch 1,
 # 18 Sep 2026; CLAUDE.md decision #8). Used ONLY as the fallback estimate the runbook quotes before

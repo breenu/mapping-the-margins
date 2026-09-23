@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from margins.orchestrate.config import P11Config
+from margins.orchestrate.config import E4DecodingArm, P11Config
 
 __all__ = [
     "DEFAULT_LAYOUT",
@@ -36,12 +36,15 @@ __all__ = [
     "SmokeLayout",
     "crows_inference",
     "e1_inference",
+    "e4_inference",
+    "e4_prompt_build",
     "prepare_commands",
     "process_commands",
     "redteam_audit_inference",
     "redteam_audit_prompts",
     "redteam_elicitation_commands",
     "redteam_frames",
+    "smoke_e4_commands",
     "smoke_inference",
     "smoke_prompt_build",
     "smoke_stage_commands",
@@ -80,6 +83,10 @@ class Layout:
 
     def e1_prompts(self, cfg: P11Config) -> Path:
         return cfg.e1.prompts_dir / "prompts_v1.jsonl"
+
+    @staticmethod
+    def e4_prompts(arm: E4DecodingArm) -> Path:
+        return arm.prompts_dir / "prompts_v1.jsonl"
 
     @property
     def redteam_dir(self) -> Path:
@@ -154,7 +161,37 @@ def prepare_commands(cfg: P11Config, layout: Layout = DEFAULT_LAYOUT) -> list[Co
                 "build-prompts-e1-sampled",
             ),
         ),
+        *(e4_prompt_build(cfg, arm) for arm in cfg.e4.arms),
     ]
+
+
+def e4_prompt_build(
+    cfg: P11Config,
+    arm: E4DecodingArm,
+    *,
+    out_dir: Path | None = None,
+    results_dir: Path | None = None,
+) -> Command:
+    """One E4 arm's prompt file: the S1 pair's grid, stamped with that arm's decoding profile.
+
+    Rendered by the same renderer as E1 and restricted with ``--pair``, so every E4 prompt's TEXT is
+    its E1 counterpart's, byte for byte; only the decoding key (and so the id) differs.
+    """
+    argv = [
+        "--prompt-set",
+        cfg.e1.prompt_set,
+        "--decoding",
+        arm.decoding,
+        "--pair",
+        *cfg.e4.pair,
+        "--out-dir",
+        _p(out_dir if out_dir is not None else arm.prompts_dir),
+        "--run-name",
+        f"build-prompts-e4-{arm.name}",
+    ]
+    if results_dir is not None:
+        argv += ["--results-dir", _p(results_dir)]
+    return Command("build_prompts", tuple(argv))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -199,6 +236,26 @@ def e1_inference(cfg: P11Config, model: str, layout: Layout = DEFAULT_LAYOUT) ->
         out_dir=layout.responses("e1"),
         run_name=f"e1-{model}",
     )
+
+
+def e4_inference(cfg: P11Config, model: str, layout: Layout = DEFAULT_LAYOUT) -> list[Command]:
+    """E4's GENERATED arms for one model: temperature 1.0 x 3 seeds, then greedy x 1 seed.
+
+    The temperature-0.7 arm is not here on purpose: it is E1's own ``sampled_v1`` x 4 seeds on the
+    same prompts, already generated, and regenerating it would spend GPU time to reproduce data.
+    """
+    return [
+        _inference(
+            model=model,
+            prompts=layout.e4_prompts(arm),
+            decoding=arm.decoding,
+            seeds=arm.seeds,
+            batch_size=cfg.e1.batch_size,
+            out_dir=layout.responses(f"e4_{arm.name}"),
+            run_name=f"e4-{arm.name}-{model}",
+        )
+        for arm in cfg.e4.arms
+    ]
 
 
 def crows_inference(cfg: P11Config, model: str, layout: Layout = DEFAULT_LAYOUT) -> Command:
@@ -460,6 +517,9 @@ class SmokeLayout:
     def crows_prompts(self) -> Path:
         return self.work / "prompts" / "smoke_crows.jsonl"
 
+    def e4_prompts_dir(self, arm: str) -> Path:
+        return self.work / "prompts" / f"e4_{arm}"
+
     def responses(self, arm: str) -> Path:
         return self.work / "responses" / arm
 
@@ -534,6 +594,39 @@ def smoke_inference(cfg: P11Config, model: str, layout: SmokeLayout) -> list[Com
             results_dir=layout.results,
         ),
     ]
+
+
+def smoke_e4_commands(cfg: P11Config, model: str, layout: SmokeLayout) -> list[Command]:
+    """The E4 arms through the lab's own builder and profiles, on their first few prompts.
+
+    Proves each E4 decoding profile loads and generates through the real harness -- the
+    temperature-1.0 profile is new, and greedy has not run through the P11 path at all -- without
+    measuring anything. ``--limit`` is the ONLY difference from the lab command.
+    """
+    commands: list[Command] = []
+    for arm in cfg.e4.arms:
+        commands.append(
+            e4_prompt_build(
+                cfg,
+                arm,
+                out_dir=layout.e4_prompts_dir(arm.name),
+                results_dir=layout.results,
+            )
+        )
+        commands.append(
+            _inference(
+                model=model,
+                prompts=layout.e4_prompts_dir(arm.name) / "prompts_v1.jsonl",
+                decoding=arm.decoding,
+                seeds=arm.seeds,
+                batch_size=cfg.e1.batch_size,
+                out_dir=layout.responses(f"e4_{arm.name}"),
+                run_name=f"smoke-e4-{arm.name}",
+                extra=("--limit", str(cfg.smoke.e4_limit)),
+                results_dir=layout.results,
+            )
+        )
+    return commands
 
 
 def smoke_stage_commands(

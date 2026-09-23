@@ -56,6 +56,16 @@ def test_shipped_sampled_profile_is_genuinely_sampled() -> None:
     assert config.temperature > 0.0
 
 
+def test_the_e4_temperature_profile_differs_from_e1s_only_in_temperature() -> None:
+    """E4 isolates temperature: sampled_t10_v1 must equal sampled_v1 in every other setting."""
+    e1 = load_decoding_config("sampled_v1").model_dump()
+    e4 = load_decoding_config("sampled_t10_v1").model_dump()
+    differing = {name for name in e1 if e1[name] != e4[name]}
+    assert differing <= {"key", "description", "temperature"}
+    assert (e1["temperature"], e4["temperature"]) == (0.7, 1.0)
+    assert e4["top_p"] == e1["top_p"] == 0.9
+
+
 def test_every_shipped_profile_loads() -> None:
     for path in sorted(default_decoding_config_dir().glob("*.yaml")):
         config = load_decoding_config(path.stem)

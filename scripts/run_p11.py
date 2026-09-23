@@ -6,6 +6,7 @@
     uv run python scripts/run_p11.py smoke --model llama31_8b_instruct   # MUST PASS before E1
     uv run python scripts/run_p11.py e1 --model llama31_8b_instruct      # resumable
     uv run python scripts/run_p11.py crows --model llama31_8b_instruct   # resumable
+    uv run python scripts/run_p11.py e4 --model llama31_8b_instruct      # resumable
     uv run python scripts/run_p11.py redteam-elicit     # red LM -> frames
     uv run python scripts/run_p11.py redteam-prompts --max-frames N      # descriptive subset
     uv run python scripts/run_p11.py redteam-audit --model llama31_8b_instruct
@@ -59,6 +60,7 @@ GPU_CHECK_DIR = Path("data") / "p11"
 SMOKE_STAGES = (
     "prompts",
     "inference",
+    "e4",
     "scoring",
     "metrics",
     "stats",
@@ -319,14 +321,30 @@ def cmd_budget(cfg: P11Config, args: argparse.Namespace) -> int:
     if not prompts_path.is_file():
         print(f"STOP: {prompts_path} is missing. Run `run_p11.py prepare` first.")
         return 2
-    n_e1 = len(read_prompts(prompts_path)) * len(cfg.e1.seeds)
+    e1_prompts = read_prompts(prompts_path)
+    n_e1 = len(e1_prompts) * len(cfg.e1.seeds)
     print(f"E1: {n_e1} generations per model ({len(cfg.e1.seeds)} seeds)\n")
     for model, (seconds, source) in speeds.items():
         hours = project_gpu_hours(seconds, n_e1)
         print(f"  {model:<26} {seconds:5.2f} s/gen  -> {hours:6.1f} GPU-h   [{source}]")
 
-    redteam = load_redteam_config(cfg.redteam.set)
     lattice = DeclaredLattice(load_lattice_config(cfg.lattice))
+    from margins.orchestrate.smoke import pair_cells
+
+    e4_cells = {cell.cell_id for cell in pair_cells(lattice, cfg.e4.pair)}
+    n_e4_prompts = sum(1 for prompt in e1_prompts if prompt.cell_id in e4_cells)
+    n_e4 = n_e4_prompts * sum(len(arm.seeds) for arm in cfg.e4.arms)
+    arms = " + ".join(f"{arm.decoding} x {len(arm.seeds)}" for arm in cfg.e4.arms)
+    print(
+        f"\nE4: {n_e4_prompts} prompts ({' x '.join(cfg.e4.pair)}) x ({arms}) = {n_e4} "
+        f"generations per model;\n    the temperature-0.7 arm is E1's "
+        f"{cfg.e4.reuses_e1_decoding}, reused (0 extra)"
+    )
+    for model, (seconds, source) in speeds.items():
+        hours = project_gpu_hours(seconds, n_e4)
+        print(f"  {model:<26} {seconds:5.2f} s/gen  -> {hours:6.1f} GPU-h   [{source}]")
+
+    redteam = load_redteam_config(cfg.redteam.set)
     cells = target_cells(redteam, lattice)
     n_elicit = len(redteam.elicitation.templates) * len(cells) * len(elicitation_seeds(redteam))
     carriers = len(load_base_prompt_set(redteam).carriers)
@@ -455,6 +473,18 @@ def cmd_smoke(cfg: P11Config, args: argparse.Namespace) -> int:
 
         timed("inference", inference_stage)
 
+    if stage("e4"):
+
+        def e4_stage() -> dict[str, Any]:
+            # The E4 arms through the lab's own prompt builder and decoding profiles, capped at
+            # `e4_limit` prompts. They are not scored: E4's analysis is not the smoke run's job,
+            # proving that each E4 profile loads and generates under its own settings is.
+            for command in plan.smoke_e4_commands(cfg, args.model, layout):
+                execute(command, dry_run=args.dry_run)
+            return {"limit": cfg.smoke.e4_limit, "arms": [arm.name for arm in cfg.e4.arms]}
+
+        timed("e4", e4_stage)
+
     if stage("scoring"):
 
         def scoring_stage() -> None:
@@ -497,6 +527,27 @@ def cmd_smoke(cfg: P11Config, args: argparse.Namespace) -> int:
         return 0
 
     stats_config = load_stats_config()
+    from margins.inference import load_decoding_config
+    from margins.orchestrate.smoke import E4Expectation
+
+    e4_ran = "e4" in stages or any(
+        (layout.responses(f"e4_{arm.name}") / args.model).is_dir() for arm in cfg.e4.arms
+    )
+    e4_expected = (
+        [
+            E4Expectation(
+                name=arm.name,
+                directory=layout.responses(f"e4_{arm.name}") / args.model,
+                n_responses=cfg.smoke.e4_limit * len(arm.seeds),
+                decoding_key=arm.decoding,
+                temperature=load_decoding_config(arm.decoding).temperature,
+                seeds=arm.seeds,
+            )
+            for arm in cfg.e4.arms
+        ]
+        if e4_ran
+        else []
+    )
     verdict = check_smoke_pass(
         open_gen_metrics_dir=layout.metrics("open_gen"),
         stats_dir=layout.stats,
@@ -506,6 +557,7 @@ def cmd_smoke(cfg: P11Config, args: argparse.Namespace) -> int:
         open_gen_benchmark=plan.OPEN_GEN_BENCHMARK,
         crows_benchmark=cfg.crows.benchmark,
         correction=stats_config.fdr.method,
+        e4=e4_expected,
     )
     record["failed_stage"] = failed
     record["passed"] = verdict.passed and failed is None
@@ -533,6 +585,29 @@ def cmd_e1(cfg: P11Config, args: argparse.Namespace) -> int:
     if not args.dry_run:
         confirmatory_preflight(allow_dirty=args.allow_dirty)
     execute(plan.e1_inference(cfg, args.model), dry_run=args.dry_run)
+    return 0
+
+
+def cmd_e4(cfg: P11Config, args: argparse.Namespace) -> int:
+    """E4's generated arms for one model. The temperature-0.7 arm is E1's, reused."""
+    if not args.dry_run:
+        confirmatory_preflight(allow_dirty=args.allow_dirty)
+        missing = [
+            plan.Layout.e4_prompts(arm)
+            for arm in cfg.e4.arms
+            if not plan.Layout.e4_prompts(arm).is_file()
+        ]
+        if missing:
+            raise StepFailedError(
+                f"STOP: {', '.join(str(m) for m in missing)} missing. Run `run_p11.py prepare`."
+            )
+    print(
+        f"E4 on {' x '.join(cfg.e4.pair)}: generating "
+        + ", ".join(f"{arm.decoding} x {len(arm.seeds)} seed(s)" for arm in cfg.e4.arms)
+        + f"; temperature 0.7 is E1's {cfg.e4.reuses_e1_decoding}, reused, not regenerated."
+    )
+    for command in plan.e4_inference(cfg, args.model):
+        execute(command, dry_run=args.dry_run)
     return 0
 
 
@@ -635,6 +710,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, text in (
         ("e1", "E1: the static open_gen arm for one model (resumable)."),
         ("crows", "E1: the CrowS-Pairs log-probability arm for one model (resumable)."),
+        ("e4", "E4: the temperature-1.0 and greedy arms on class x race (resumable)."),
         ("redteam-audit", "Red-team audit prompts through one target model (resumable)."),
     ):
         child = add(name, text)
@@ -665,6 +741,7 @@ HANDLERS = {
     "smoke": cmd_smoke,
     "e1": cmd_e1,
     "crows": cmd_crows,
+    "e4": cmd_e4,
     "redteam-elicit": cmd_redteam_elicit,
     "redteam-prompts": cmd_redteam_prompts,
     "redteam-audit": cmd_redteam_audit,
