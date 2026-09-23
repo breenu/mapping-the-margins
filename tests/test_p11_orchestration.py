@@ -233,6 +233,9 @@ def test_the_smoke_run_reaches_correction_claim_gate_and_figure(tmp_path: Path) 
     assert "family_size" in checks["FDR correction reached"]["detail"]
     # The expected verdict at smoke n, and the proof the gate RAN rather than being skipped.
     assert "underpowered" in checks["ClaimGate ran on every corrected term"]["detail"]
+    # B3 ran on the real item-level scores and its p reached every corrected term's claim row.
+    assert checks["B3 permutation p on every corrected term"]["passed"]
+    assert "12/12" in checks["B3 permutation p on every corrected term"]["detail"]
     assert (tmp_path / "figures" / "smoke_fig1_emergence.pdf").is_file()
     assert (tmp_path / "figures" / "smoke_fig1_emergence.svg").is_file()
     # Isolation: every manifest went under the work dir, none into the committed results/.
@@ -273,6 +276,7 @@ def test_processing_two_models_corrects_one_family_and_keeps_redteam_descriptive
     lattice = DeclaredLattice(load_lattice_config("confirmatory_v1"))
     layout = plan.Layout(data=tmp_path / "data", results=tmp_path / "results")
     pair = ("socioeconomic_class", "race_ethnicity")
+    names = ("llama31_8b_instruct", "mistral7b_instruct_v03")
     for index, (name, model_id) in enumerate(
         (("llama31_8b_instruct", LLAMA_8B), ("mistral7b_instruct_v03", MISTRAL))
     ):
@@ -321,7 +325,25 @@ def test_processing_two_models_corrects_one_family_and_keeps_redteam_descriptive
     effects = read_table("emergence_effects", directory=layout.tables)
     redteam = effects.where(benchmark="redteam")
     assert redteam.rows, "the red-team arm never reached the tables"
-    assert all(row["q"] == "" and row["p"] == "" for row in redteam.rows)
+    assert all(
+        row["q"] == "" and row["p"] == "" and row["p_permutation"] == "" for row in redteam.rows
+    )
+    # B3 on the real E1 output: every family term carries a permutation p beside its q.
+    family_rows = [row for row in effects.rows if row["q"] != ""]
+    assert family_rows and all(row["p_permutation"] != "" for row in family_rows)
+    assert all(row["p_permutation"] == "" for row in effects.rows if row["q"] == "")
+
+    # And run_stats refuses to silently skip B3.
+    with pytest.raises(SystemExit):
+        _script("run_stats").main(
+            [
+                "--metrics-dir",
+                *(str(layout.metrics(arm, name)) for arm in ("e1", "crows") for name in names),
+                "--out-dir",
+                str(tmp_path / "stats_again"),
+                "--no-manifest",
+            ]
+        )
     assert len(list((tmp_path / "figures").glob("*.pdf"))) == 5
     # Manifests went where the layout said, not into the committed results/.
     assert list((layout.results / "run_manifests").glob("stats-e1-*.json"))

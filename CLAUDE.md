@@ -51,7 +51,7 @@ not only on the dev box. **965 tests.**
 **P11 ORCHESTRATION ✅ READY — AWAITING THE LAB RUN (23 Sep 2026).** `scripts/run_p11.py` +
 `margins.orchestrate` + **`docs/runbook_p11.md`** (the exact-command lab procedure). No real 8B
 generation has run; that happens on the university GPU, following the runbook. See "P11
-orchestration as built". **1001 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
+orchestration as built". **1007 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
 decisions below are now built in: the smoke run is `run_p11.py smoke` and MUST PASS first, and the
 red-team arm is a descriptive `--max-frames` subset.
 
@@ -187,12 +187,22 @@ the real stage.** Both P6's Krippendorff blow-up and this were found that way, n
   identical command**. `process` refuses a folder holding more than one run file.
 - `prepare` runs the CrowS ingestion with `--no-manifest --no-paper-numbers`: re-registering it
   would rewrite a committed manifest and dirty the tree every confirmatory manifest records.
-- **⚠ OPEN, NOT BUILT — B3 is never run on real data.** `margins.stats.permute` exists and is
-  tested, but no script calls it: `run_stats.py` reads only P7 outputs, so `p_permutation` stays
-  empty after the lab run. B3 is in the minimum claim set (E1 + B1 + B3 + E4). It needs the
-  item-level scores beside P7's fits; wiring it is a P11-results task, not done here.
-- **Also not covered by the runbook:** E4 (sensitivity subset) and R2 — separate runs, not in the
-  brief. `make_figures --only essential` in `process` because the two supporting figures need E4's
+- **B3 WIRED (23 Sep 2026, after sign-off review).** It had been built at P9 but never run on real
+  data: `run_stats.py` read only P7 outputs, so every `p_permutation` would have been empty, and B3
+  is in the minimum claim set. `margins.stats.b3.run_b3` now rebuilds each family series from the
+  item-level scores through **P7's own** `triangulate` + `pair_observations` (made public for this;
+  pure refactor), **joins the observed contrast to P7's estimate to 1e-8 or raises**, and permutes
+  under the pre-registered scheme/seed with a per-series generator (order-independent).
+  `run_stats.py --scores …` is REQUIRED (refuses without it unless `--no-permutation`); the p lands
+  on `claims.parquet`, in a new `p_permutation` column of `emergence_effects`, and as
+  `b3.{n_terms_tested,n_permutations,n_p_le_alpha}` paper numbers. Beside the GLM p, never in the
+  family. **Blocks = (template, CARRIER, stratum value)**, decided with the human 23 Sep 2026 and
+  logged in pre-reg §10: with two carriers per frame, template-only blocks would exchange across a
+  second source of variation. The smoke run gained a 7th clause, "B3 permutation p on every
+  corrected term".
+- **Also not covered by the runbook:** E4 (sensitivity subset) — PRICED 23 Sep 2026, awaiting the
+  human's scope decision (see the P11 hand-off) — and R2, deliberately out of this run (a
+  lightweight subset rerun later). `make_figures --only essential` in `process` because the two supporting figures need E4's
   tables.
 
 ### P10 as built (the FIGURES + TABLES — for P11/P12 to consume)
@@ -956,7 +966,8 @@ uv run python scripts/run_metrics.py --n-resamples 200      # smoke
 # NOTE: data/metrics/redteam is deliberately NOT passed yet -- `redteam` is absent from
 # `family_benchmarks`, so P9 would refuse it as an undeclared source. Admitting it is a logged
 # amendment that rides with a re-run power analysis at P11 (168 -> 336 moves the BH threshold).
-uv run python scripts/run_stats.py --metrics-dir data/metrics data/metrics/crows_pairs
+uv run python scripts/run_stats.py --metrics-dir data/metrics data/metrics/crows_pairs \
+    --scores data/scoring/scores.parquet data/scoring/crows_pairs/scores.parquet   # B3 needs them
 uv run python scripts/run_power_analysis.py     # the power simulation (slow, ~30 min)
 uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json
 # rho was MEASURED 19 Sep 2026 (regard 0.35, toxicity 0.18). Do NOT re-run these two: both

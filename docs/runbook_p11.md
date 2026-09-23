@@ -160,10 +160,12 @@ pipeline on this GPU:
 
 - one confirmatory pair's full grid (age × class, 12 cells) × 3 prompts × 3 samples = 108
   generations, plus 40 CrowS-Pairs items;
-- then scoring → metrics → **FDR correction** → **claim gate** → **one figure**.
+- then scoring → metrics → **FDR correction** + **B3 permutation test** → **claim gate** →
+  **one figure**.
 
-It exists because the correction step has never run on real model output. That is where a bug hid
-through four earlier phases, and finding a bug here costs about an hour instead of days of GPU time.
+It exists because the correction step, and the B3 permutation test beside it, have never run on
+real model output. That is where a bug hid through four earlier phases, and finding a bug here
+costs about an hour instead of days of GPU time.
 
 ```bash
 uv run python scripts/run_p11.py smoke --model llama31_8b_instruct
@@ -184,7 +186,8 @@ passes only if all of these hold:**
 | 3 | **FDR correction reached**: family terms carry a `q`, a `family_size` and the `fdr_bh` correction | `attach_wald_p → correct` ran on real output |
 | 4 | **ClaimGate ran on every corrected term** | The significance gate ran. Its verdict here is `underpowered`, and **that is the expected, correct verdict** at smoke size |
 | 5 | The CrowS-Pairs members are **excused as not estimable** | The second paradigm joins the family without crashing it |
-| 6 | The emergence figure is written as PDF + SVG, with its traceability audit clean | The last link: a figure drawn from corrected output |
+| 6 | **B3 permutation p on every corrected term** | The independent permutation test ran on the item-level scores and its p reached every claim row |
+| 7 | The emergence figure is written as PDF + SVG, with its traceability audit clean | The last link: a figure drawn from corrected output |
 
 **A run that prints `NOTHING TO CORRECT` is a FAIL**, however cleanly it exits. It means the
 correction path was never reached, which is exactly what this run exists to rule out.
@@ -391,7 +394,8 @@ uv run python scripts/run_p11.py process --no-redteam
 1. scoring of every response file (per arm, per model);
 2. metrics (per arm, per model);
 3. **one** statistics run that FDR-corrects both models' E1 and CrowS-Pairs terms together as one
-   family;
+   family, and runs the **B3 permutation test** on every family term from the item-level scores
+   (CPU work: minutes, not hours);
 4. the result tables, with the red-team rows added as descriptive, carrying no p and no q;
 5. the five headline figures.
 
@@ -616,7 +620,7 @@ uv run python scripts/run_metrics.py --scores data/scoring/crows/llama31_8b_inst
 uv run python scripts/run_metrics.py --scores data/scoring/crows/mistral7b_instruct_v03/scores.parquet --drift data/scoring/crows/mistral7b_instruct_v03/drift_control.parquet --benchmark crows_pairs --out-dir data/metrics/crows/mistral7b_instruct_v03 --run-name metrics-crows-mistral7b_instruct_v03
 uv run python scripts/run_metrics.py --scores data/scoring/redteam/llama31_8b_instruct/scores.parquet --drift data/scoring/redteam/llama31_8b_instruct/drift_control.parquet --benchmark redteam --out-dir data/metrics/redteam/llama31_8b_instruct --run-name metrics-redteam-llama31_8b_instruct
 uv run python scripts/run_metrics.py --scores data/scoring/redteam/mistral7b_instruct_v03/scores.parquet --drift data/scoring/redteam/mistral7b_instruct_v03/drift_control.parquet --benchmark redteam --out-dir data/metrics/redteam/mistral7b_instruct_v03 --run-name metrics-redteam-mistral7b_instruct_v03
-uv run python scripts/run_stats.py --metrics-dir data/metrics/e1/llama31_8b_instruct data/metrics/e1/mistral7b_instruct_v03 data/metrics/crows/llama31_8b_instruct data/metrics/crows/mistral7b_instruct_v03 --out-dir data/stats --paper-numbers results/paper_numbers.json --run-name stats-e1
+uv run python scripts/run_stats.py --metrics-dir data/metrics/e1/llama31_8b_instruct data/metrics/e1/mistral7b_instruct_v03 data/metrics/crows/llama31_8b_instruct data/metrics/crows/mistral7b_instruct_v03 --scores data/scoring/e1/llama31_8b_instruct/scores.parquet data/scoring/e1/mistral7b_instruct_v03/scores.parquet data/scoring/crows/llama31_8b_instruct/scores.parquet data/scoring/crows/mistral7b_instruct_v03/scores.parquet --out-dir data/stats --paper-numbers results/paper_numbers.json --run-name stats-e1
 uv run python scripts/build_result_tables.py --stats-dir data/stats --metrics-dir data/metrics/e1/llama31_8b_instruct data/metrics/e1/mistral7b_instruct_v03 data/metrics/crows/llama31_8b_instruct data/metrics/crows/mistral7b_instruct_v03 --descriptive-metrics-dir data/metrics/redteam/llama31_8b_instruct data/metrics/redteam/mistral7b_instruct_v03 --out-dir results/tables
 uv run python scripts/make_figures.py --only essential --table-dir results/tables --paper-numbers results/paper_numbers.json --out-dir figures
 ```

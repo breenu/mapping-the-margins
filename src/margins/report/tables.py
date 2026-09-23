@@ -147,6 +147,8 @@ EMERGENCE_EFFECTS = TableSpec(
         Column("ci_high", "float", digits=3, label="CI high"),
         Column("p", "float", digits=4),
         Column("q", "float", digits=4),
+        # B3 (P11): the permutation p, reported BESIDE the GLM p and never in the FDR family.
+        Column("p_permutation", "float", digits=4, label="p (perm.)"),
         # Carried, not derived. A figure that needs to hand an estimate back to the claim gate
         # must be able to rebuild the record P9 wrote, and inventing these two would be the
         # figure layer setting significance (invariant 3).

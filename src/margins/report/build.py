@@ -114,6 +114,9 @@ def emergence_rows(
                 "ci_high": effect.ci_high,
                 "p": effect.p,
                 "q": effect.q,
+                # B3, beside the GLM p and never corrected. Carried from the claim row P9 wrote;
+                # empty for an effect the gate never saw (a descriptive arm) or a non-member term.
+                "p_permutation": claim.p_permutation if claim is not None else None,
                 "family_size": effect.family_size,
                 "correction": effect.correction,
                 "powered": effect.powered,

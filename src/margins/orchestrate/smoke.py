@@ -257,7 +257,25 @@ def check_smoke_pass(
         )
     )
 
-    # 5. The figure exists in every vector format.
+    # 5. B3 ran: every corrected family term carries a permutation p beside its GLM p. Read off
+    # the claim rows, where the report layer reads it -- not off an in-memory result.
+    permuted = [
+        by_key[(e.benchmark, e.model, e.harm_type, *e.axis_pair, e.term)]
+        for e in corrected
+        if (e.benchmark, e.model, e.harm_type, *e.axis_pair, e.term) in by_key
+    ]
+    with_p = [c for c in permuted if c.p_permutation is not None]
+    b3_ok = bool(corrected) and len(with_p) == len(corrected)
+    if b3_ok:
+        low = min(c.p_permutation for c in with_p if c.p_permutation is not None)
+        b3_detail = (
+            f"{len(with_p)}/{len(corrected)} family terms carry p_permutation (min {low:.4f})"
+        )
+    else:
+        b3_detail = f"{len(with_p)}/{len(corrected)} corrected family terms carry p_permutation"
+    checks.append(SmokeCheck("B3 permutation p on every corrected term", b3_ok, b3_detail))
+
+    # 6. The figure exists in every vector format.
     absent = [path for path in figure_paths if not path.is_file()]
     checks.append(
         SmokeCheck(

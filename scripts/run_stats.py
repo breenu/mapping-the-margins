@@ -8,10 +8,16 @@ Reads ``data/metrics/`` (P7) plus the lattice, and writes under ``--out-dir``
 * ``effects_corrected.parquet`` -- EffectEstimates with q, family_size and correction stamped
 * ``family.parquet``           -- every declared family slot, present or excused, with reasons
 * ``descriptive_only.parquet`` -- the enforced section 9 downgrade, per harm type
-* ``claims.parquet``           -- one row per effect INCLUDING refused ones, with the reason
+* ``claims.parquet``           -- one row per effect INCLUDING refused ones, with the reason and
+                                  B3's permutation p beside the GLM p
 * ``fdr_report.md``            -- the correction in words
 
 plus ``results/paper_numbers.json`` and a run manifest.
+
+**B3 runs here, on the item-level scores (P11).** The permutation null needs the observations the
+fits were made from, which P7's outputs do not carry, so pass every run's ``scores.parquet`` with
+``--scores``. Leaving B3 out takes an explicit ``--no-permutation``, never a silent default: B3 is
+in the minimum claim set, and an empty permutation column must be a choice someone made.
 
 **This is the only stage that declares significance.** The family is the lattice's confirmatory
 pairs and nothing else; exploratory pairs pass through with no p and no q. A harm type the drift
@@ -37,6 +43,7 @@ from margins.lattice.config import DEFAULT_LATTICE, default_lattice_config_dir, 
 from margins.metrics.design import pair_designs
 from margins.metrics.export import DEFAULT_METRICS_DIR
 from margins.prompts.config import file_sha256
+from margins.scoring.export import read_scores
 from margins.stats.analysis import run_stats_analysis
 from margins.stats.config import DEFAULT_STATS, default_stats_config_dir, load_stats_config
 from margins.stats.export import DEFAULT_STATS_DIR, export_stats
@@ -70,6 +77,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--results-dir", type=Path, default=None)
     parser.add_argument("--config-dir", type=Path, default=None)
     parser.add_argument("--run-name", default="stats")
+    parser.add_argument(
+        "--scores",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="The P6 scores.parquet of every run in --metrics-dir. B3 (the permutation null) is "
+        "computed from these item-level rows, which must match the P7 fits exactly.",
+    )
+    parser.add_argument(
+        "--no-permutation",
+        action="store_true",
+        help="Skip B3. Debugging only: B3 is in the minimum claim set.",
+    )
     parser.add_argument("--no-manifest", action="store_true")
     parser.add_argument(
         "--no-paper-numbers", action="store_true", help="Skip results/paper_numbers.json."
@@ -111,8 +131,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if not args.scores and not args.no_permutation:
+        parser.error(
+            "B3 needs the item-level scores: pass every run's scores.parquet with --scores (or "
+            "--no-permutation to skip B3 deliberately, which leaves p_permutation empty)."
+        )
+    scores = None
+    if args.scores:
+        scores = [row for path in args.scores for row in read_scores(path)]
+        print(f"scores     {len(scores)} item-level rows from {len(args.scores)} file(s), for B3")
+
     result = run_stats_analysis(
-        inputs, designs, lattice_config, config=config, min_cell_n=min_cell_n
+        inputs,
+        designs,
+        lattice_config,
+        config=config,
+        min_cell_n=min_cell_n,
+        scores=scores,
+        cells=lattice.cells() if scores is not None else None,
     )
 
     print(f"FAMILY SIZE            {result.family_size}")
@@ -128,7 +164,21 @@ def main(argv: list[str] | None = None) -> int:
         "something is wrong with the correction."
     )
     print(f"exploratory (no q)     {result.n_exploratory}")
-    print(f"claimable / refused    {result.n_claimable} / {result.n_refused}\n")
+    print(f"claimable / refused    {result.n_claimable} / {result.n_refused}")
+    if result.b3 is None:
+        print("B3 PERMUTATION         NOT RUN (--no-permutation): p_permutation is empty\n")
+    else:
+        below = sum(1 for p in result.b3.p_values.values() if p <= config.fdr.alpha)
+        print(
+            f"B3 PERMUTATION         {result.b3.n_terms} family terms, {result.b3.scheme}, "
+            f"{result.b3.n_permutations} replicates; p_perm <= {config.fdr.alpha}: {below}"
+        )
+        for series in result.b3.series:
+            print(
+                f"  {series.model_id} {series.harm_type:<10} {series.axis_a} x {series.axis_b}: "
+                f"{series.exchangeable_items}/{series.n_items} items exchangeable"
+            )
+        print()
 
     print("DESCRIPTIVE-ONLY (section 9, enforced at the pre-registered threshold)")
     for decision in result.descriptive_only:
@@ -228,6 +278,27 @@ def _paper_numbers(
         ),
         PaperNumber(key="power.min_cell_n", value=min_cell_n, unit="renderings", **common),
         PaperNumber(key="power.effect_size", value=config.power.effect_size, unit="sd", **common),
+        *(
+            []
+            if result.b3 is None
+            else [
+                PaperNumber(
+                    key="b3.n_terms_tested", value=result.b3.n_terms, unit="count", **common
+                ),
+                PaperNumber(
+                    key="b3.n_permutations",
+                    value=result.b3.n_permutations,
+                    unit="count",
+                    **common,
+                ),
+                PaperNumber(
+                    key="b3.n_p_le_alpha",
+                    value=sum(1 for p in result.b3.p_values.values() if p <= config.fdr.alpha),
+                    unit="count",
+                    **common,
+                ),
+            ]
+        ),
     ]
 
 

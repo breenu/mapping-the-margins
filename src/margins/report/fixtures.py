@@ -235,6 +235,9 @@ def _emergence_rows(
                             "ci_high": high,
                             "p": _wald_p(estimate, se) if member else None,
                             "q": None,
+                            # Not simulated: a fixture p_permutation would be a number with no
+                            # permutation behind it. The column is blank until a real run fills it.
+                            "p_permutation": None,
                             "family_size": None,
                             "correction": None,
                             "powered": powered,
@@ -274,6 +277,7 @@ def _emergence_rows(
                                 "ci_high": high,
                                 "p": None,
                                 "q": None,
+                                "p_permutation": None,
                                 "family_size": None,
                                 "correction": None,
                                 "powered": powered,

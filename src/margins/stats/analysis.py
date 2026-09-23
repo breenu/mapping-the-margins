@@ -13,8 +13,10 @@ The order is not arbitrary and each step depends on the one before:
 3. **attach p** to confirmatory effects only, because an exploratory p with no q beside it
    invites the reading the split exists to prevent;
 4. **correct**, which is the only place q, family_size and correction are set;
-5. **enforce the drift rule** against the pre-registered threshold, recomputed from raw columns;
-6. **gate**, emitting a row for every effect including the refused ones.
+5. **permute (B3)** every family term from the item-level scores, when they are given -- the
+   assumption-light second opinion that is reported beside the GLM p and never corrected;
+6. **enforce the drift rule** against the pre-registered threshold, recomputed from raw columns;
+7. **gate**, emitting a row for every effect including the refused ones.
 """
 
 from __future__ import annotations
@@ -24,7 +26,8 @@ from dataclasses import dataclass, field
 
 from margins.lattice.config import LatticeConfig
 from margins.metrics.design import PairDesign
-from margins.schemas import EffectEstimate
+from margins.schemas import EffectEstimate, IdentityCell, ItemScore
+from margins.stats.b3 import B3Result, run_b3
 from margins.stats.claims import ClaimGate
 from margins.stats.config import StatsConfig
 from margins.stats.correct import BenjaminiHochbergEngine, fdr_by_values
@@ -60,6 +63,8 @@ class StatsResult:
     n_significant_pre: int = 0
     n_significant_post: int = 0
     n_exploratory: int = 0
+    #: The B3 permutation result. None only when the caller declined B3 explicitly.
+    b3: B3Result | None = None
 
     @property
     def n_claimable(self) -> int:
@@ -81,8 +86,17 @@ def run_stats_analysis(
     *,
     config: StatsConfig,
     min_cell_n: int,
+    scores: Sequence[ItemScore] | None = None,
+    cells: Sequence[IdentityCell] | None = None,
 ) -> StatsResult:
-    """Run the whole stage and return its result. Pure of I/O beyond what ``inputs`` holds."""
+    """Run the whole stage and return its result. Pure of I/O beyond what ``inputs`` holds.
+
+    ``scores`` (with ``cells``) are the item-level rows P7 fitted; given them, B3 runs on every
+    family term and its p lands on the claim rows. Omitting them skips B3 -- the script refuses to
+    do that unless told to explicitly.
+    """
+    if scores is not None and cells is None:
+        raise ValueError("B3 needs the lattice cells to place the item-level scores")
     check_effects_match_fits(inputs)
 
     # `attempted_groups`, not `groups`: the family spans what P7 TRIED, so a source whose every
@@ -115,6 +129,18 @@ def run_stats_analysis(
         and effect.p <= config.fdr.alpha
     )
     corrected = engine.correct(with_p)
+    b3 = (
+        run_b3(
+            scores,
+            cells or (),
+            designs,
+            corrected,
+            is_family_member=lambda key: plan.is_family_member(key),
+            settings=config.permutation,
+        )
+        if scores is not None
+        else None
+    )
     n_post = sum(1 for effect in corrected if effect.q is not None and effect.q <= config.fdr.alpha)
 
     decisions = descriptive_only_decisions(
@@ -126,7 +152,11 @@ def run_stats_analysis(
         alpha=config.fdr.alpha,
         powered_only=True,
     )
-    claims = gate.claims(corrected, fdr_by=fdr_by_values(corrected))
+    claims = gate.claims(
+        corrected,
+        fdr_by=fdr_by_values(corrected),
+        permutation_p=None if b3 is None else b3.p_values,
+    )
 
     return StatsResult(
         corrected=corrected,
@@ -137,6 +167,7 @@ def run_stats_analysis(
         family_size=plan.size,
         n_significant_pre=n_pre,
         n_significant_post=n_post,
+        b3=b3,
         n_exploratory=sum(
             # Everything outside the family: exploratory pairs AND the confirmatory pairs'
             # non-member terms. Both are reported descriptively and carry no significance.

@@ -376,6 +376,12 @@ def process_commands(
     family_dirs = [
         _p(layout.metrics(arm, model)) for arm in ("e1", "crows") for model in cfg.e1.models
     ]
+    # B3 permutes the item-level scores the family's fits were made from, in the same order.
+    family_scores = [
+        _p(layout.scoring(arm, model) / "scores.parquet")
+        for arm in ("e1", "crows")
+        for model in cfg.e1.models
+    ]
     descriptive_dirs = [_p(layout.metrics("redteam", model)) for model in cfg.e1.models]
     if "stats" in stages:
         commands.append(
@@ -384,6 +390,8 @@ def process_commands(
                 (
                     "--metrics-dir",
                     *family_dirs,
+                    "--scores",
+                    *family_scores,
                     "--out-dir",
                     _p(layout.stats),
                     "--paper-numbers",
@@ -580,6 +588,9 @@ def smoke_stage_commands(
                 (
                     "--metrics-dir",
                     *metric_dirs,
+                    "--scores",
+                    _p(layout.scoring("open_gen") / "scores.parquet"),
+                    _p(layout.scoring("crows") / "scores.parquet"),
                     "--out-dir",
                     _p(layout.stats),
                     "--paper-numbers",

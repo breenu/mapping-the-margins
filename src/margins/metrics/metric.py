@@ -32,7 +32,7 @@ point-subtraction section 9 forbids, arrived at by accident.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -58,6 +58,7 @@ __all__ = [
     "fit_report",
     "fit_terms",
     "not_estimable_report",
+    "pair_observations",
     "triangulate",
 ]
 
@@ -253,10 +254,7 @@ class EmergenceMetric:
         """Fit the triangulated series (-> EffectEstimate) and each scorer's series (-> FitTerm)."""
         settings = self._config.bootstrap
         cell_ids = {cell_id for _, _, cell_id in design.cells}
-        in_pair = [o for o in observations if o.cell_id in cell_ids]
-        value_a = tuple(by_cell[o.cell_id].axes_map[design.axis_a] for o in in_pair)
-        value_b = tuple(by_cell[o.cell_id].axes_map[design.axis_b] for o in in_pair)
-        items = tuple(o.prompt_id for o in in_pair)
+        in_pair, value_a, value_b, items = pair_observations(observations, design, by_cell)
 
         counts: dict[str, int] = dict.fromkeys(cell_ids, 0)
         for obs in in_pair:
@@ -302,6 +300,25 @@ class EmergenceMetric:
 # --------------------------------------------------------------------------------------
 # helpers shared with the drift fit
 # --------------------------------------------------------------------------------------
+
+
+def pair_observations(
+    observations: Sequence[Observation],
+    design: PairDesign,
+    by_cell: Mapping[str, IdentityCell],
+) -> tuple[list[Observation], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """``(observations in the pair, value_a, value_b, item)`` -- the rows a pair's fit sees.
+
+    Public since P11 so the B3 permutation null (``margins.stats.b3``) is computed on EXACTLY the
+    rows, the levels and the item clusters the estimator fitted, rather than on a second
+    construction of them that could drift.
+    """
+    cell_ids = {cell_id for _, _, cell_id in design.cells}
+    in_pair = [o for o in observations if o.cell_id in cell_ids]
+    value_a = tuple(by_cell[o.cell_id].axes_map[design.axis_a] for o in in_pair)
+    value_b = tuple(by_cell[o.cell_id].axes_map[design.axis_b] for o in in_pair)
+    items = tuple(o.prompt_id for o in in_pair)
+    return in_pair, value_a, value_b, items
 
 
 def triangulate(rows: Sequence[ItemScore]) -> tuple[tuple[str, ...], list[Observation]]:
