@@ -48,9 +48,12 @@ and `core (windows-latest)`, run `35694991682` at commit `0f887b6`) — includin
 `make_figures.py` step, so the one-command regeneration gate is confirmed on both platforms and
 not only on the dev box. **965 tests.**
 
-**NEXT TASK: P11 — experiments.** Then P12 (paper), P13 (release). **Before any full run, honour
-the two things decided 21 Sep 2026 below** — the multi-rendering smoke run that exercises the P9
-correction path, and the red-team arm staying `powered=False`.
+**P11 ORCHESTRATION ✅ READY — AWAITING THE LAB RUN (23 Sep 2026).** `scripts/run_p11.py` +
+`margins.orchestrate` + **`docs/runbook_p11.md`** (the exact-command lab procedure). No real 8B
+generation has run; that happens on the university GPU, following the runbook. See "P11
+orchestration as built". **1001 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
+decisions below are now built in: the smoke run is `run_p11.py smoke` and MUST PASS first, and the
+red-team arm is a descriptive `--max-frames` subset.
 
 ### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
@@ -130,6 +133,67 @@ on real P7 output. P8's integration test is the first thing that fed it any.
 Pinned by `tests/test_fdr_correction.py::test_a_non_member_term_of_a_confirmatory_pair_passes_
 through_descriptively`. **The lesson is the §11 golden rule restated: run the real artifact through
 the real stage.** Both P6's Krippendorff blow-up and this were found that way, not by a test.
+
+### P11 orchestration as built (23 Sep 2026 — for the lab run and P12)
+
+- **One entry point, `scripts/run_p11.py`**, subcommands `prepare | verify-gpu | budget | smoke |
+  e1 | crows | redteam-elicit | redteam-prompts | redteam-audit | process`, each with `--dry-run`.
+  It measures nothing: it calls the existing scripts' `main(argv)` and echoes every call.
+  **Every argv lives in `margins.orchestrate.plan`**, and `tests/test_p11_orchestration.py` parses
+  every planned command AND every `uv run python scripts/…` line of `docs/runbook_p11.md` against
+  the REAL argparse parsers (capturing `parse_args`, rejecting extras) — an invented flag fails CI.
+- **Four decisions, asked and answered 23 Sep 2026, logged as pre-reg §10 CLARIFICATIONS** (not
+  design changes): (1) E1 seeds `20260908–20260911` = config seed + 0..3; (2) the E1 prompt set is
+  re-stamped `sampled_v1` at build time by the new **`build_prompts.py --decoding`** (text
+  byte-identical, ids = the rho pilot's; config file untouched so E4 keeps greedy); (3)
+  **standardization is PER MODEL** — each model scored in its own call, own P7 dir, and P9 corrects
+  all dirs as ONE family (still 168); (4) the red-team subset is a **`--max-frames` cap** sized by
+  `run_p11.py budget` from MEASURED speed against ~20 GPU-h, chosen by pure content-ordered
+  round-robin over (angle × pair) (`margins.redteam.select_frames`), 1 sample/prompt, powered=False.
+- **The declaration is `configs/experiment/p11_v1.yaml`** (`P11Config`): seeds, `batch_size: 8`,
+  models, arms, the smoke design, and the T4 pilot sec/gen as the pre-measurement estimate.
+- **THE SMOKE RUN** (`run_p11.py smoke --model …`): age × class grid (12 cells) × 3 frames × 1
+  carrier × 3 seeds = 108 generations + 40 CrowS items, selected as a SUBSET of the real E1 sampled
+  set (ids are E1's), through the **shipped** stats config, isolated under `data/smoke/`.
+  `margins.orchestrate.smoke.check_smoke_pass` reads the artifacts back and machine-checks: an
+  estimable confirmatory pair; family terms carrying q/family_size/`fdr_bh`; a ClaimGate row for
+  every corrected term (**`underpowered` is the expected verdict at smoke n**); CrowS excused; the
+  bannered emergence figure written with a clean audit. **"NOTHING TO CORRECT" is a FAIL**, and a
+  test proves one rendering per cell FAILS. Verified on the real 1B on CPU (output in the P11
+  hand-off) and in CI on synthetic multi-rendering scores, incl. a two-model processing test that
+  corrects four P7 dirs as one family (36 = 9 × 2 × 2 there) and draws all five essential figures.
+- **Six gaps found and closed**, each of which would have cost GPU time or provenance:
+  1. `open_gen_v1.yaml` is stamped `greedy_v1`; E1 is `sampled_v1` and the backend refuses a
+     mismatch → `--decoding` re-stamp.
+  2. **A CUDA host without bitsandbytes silently loaded fp16.** `run_inference.py` now REFUSES a
+     *confirmatory* model whose `quant_actual` ≠ requested (`--allow-quant-fallback` for debugging
+     only); dev/CI models unaffected. `verify-gpu` checks NF4 before a ~16 GB download.
+  3. **The manifest named no GPU.** `EnvironmentFingerprint` gained `cuda_devices`,
+     `nvidia_driver_version` (via never-raise `nvidia-smi`), `torch_cuda_version`, `cudnn_version`,
+     `torch_blas_info` (torch's own BLAS; `blas_backend` is numpy's) and `cuda_device_in_use` —
+     the last read ONLY if a CUDA context already exists, so the fingerprint never creates one
+     ahead of `CUBLAS_WORKSPACE_CONFIG`. Nested fields: no top-level `RunManifest` change.
+  4. **`git_dirty` was True for every manifest after the first**, because each stage's untracked
+     manifest counted. `dirty_status_lines` now ignores UNTRACKED files under the manifest dir only
+     (modified tracked files there still count); tested.
+  5. `build_redteam_elicitation.py`'s "next:" hint (and this file's command) omitted `--seeds`, so
+     following it drew 1 candidate per target instead of 6. Fixed; `run_p11.py` passes all six.
+  6. Red-team effects never reached `results/tables` (fig5 reads them there).
+     `build_result_tables.py --descriptive-metrics-dir` adds them with no p/q, and REFUSES any that
+     carries significance or whose benchmark is a family source.
+- **Refusals before GPU time is spent:** a dirty tree, a HEAD not descending from `prereg-v1`, a
+  confirmatory NF4 fallback, and a resume at a different batch size (`batch_size_conflict`). Every
+  generation step passes `--resume` into a per-(arm, model) out-dir, so **resuming = re-running the
+  identical command**. `process` refuses a folder holding more than one run file.
+- `prepare` runs the CrowS ingestion with `--no-manifest --no-paper-numbers`: re-registering it
+  would rewrite a committed manifest and dirty the tree every confirmatory manifest records.
+- **⚠ OPEN, NOT BUILT — B3 is never run on real data.** `margins.stats.permute` exists and is
+  tested, but no script calls it: `run_stats.py` reads only P7 outputs, so `p_permutation` stays
+  empty after the lab run. B3 is in the minimum claim set (E1 + B1 + B3 + E4). It needs the
+  item-level scores beside P7's fits; wiring it is a P11-results task, not done here.
+- **Also not covered by the runbook:** E4 (sensitivity subset) and R2 — separate runs, not in the
+  brief. `make_figures --only essential` in `process` because the two supporting figures need E4's
+  tables.
 
 ### P10 as built (the FIGURES + TABLES — for P11/P12 to consume)
 
@@ -775,7 +839,7 @@ Phase IDs are **stable labels, not a sequence**; they deliberately run out of nu
 authority is the `docs/PROJECT_CONTEXT.md` §5 table, which is sorted by build order.
 
 > P0 ✅ → P1 ✅ → P3 ✅ → P4a ✅ → P5 ✅ → P6 ✅ → P7 ✅ → P9 ✅ → P2 ✅ (CrowS-Pairs) →
-> P4b ✅ (ExtractiveRenderer) → P8 ✅ → P10 ✅ → **P11** → P12 → P13
+> P4b ✅ (ExtractiveRenderer) → P8 ✅ → P10 ✅ → **P11** (orchestration ✅, lab run pending) → P12 → P13
 
 **Why:** against a 7-week clock, the phase that must not arrive late is the one carrying the primary
 estimand. Generation-first means a slip costs **breadth** (RQ1's second paradigm — already cuttable
@@ -866,7 +930,8 @@ uv run python scripts/run_metrics.py --scores data/scoring/crows_pairs/scores.pa
 # resumable and manifest-writing for free. Heavy generation is P11's budget, NOT CI.
 uv run python scripts/build_redteam_elicitation.py        # -> data/redteam/elicitation_prompts.jsonl
 uv run python scripts/run_inference.py --model llama31_8b_instruct \
-    --prompts data/redteam/elicitation_prompts.jsonl --decoding redteam_v1   # the red LM (GPU)
+    --prompts data/redteam/elicitation_prompts.jsonl --decoding redteam_v1 \
+    --seeds 20260921 20260922 20260923 20260924 20260925 20260926   # the red LM (GPU); ALL 6 seeds
 uv run python scripts/build_redteam_frames.py --responses data/responses/<red-lm>/<run_id>.jsonl
                                                           # parse -> filter -> dedup -> GUARD
 uv run python scripts/build_redteam_prompts.py            # frames x EVERY target cell -> prompts
@@ -897,6 +962,20 @@ uv run python scripts/emit_power_numbers.py     # -> results/paper_numbers.json
 # rho was MEASURED 19 Sep 2026 (regard 0.35, toxicity 0.18). Do NOT re-run these two: both
 # pilots are frozen records and their drift guards are now pinned-digest tests.
 #   scripts/kaggle_rho_pilot.py (Kaggle, GPU)   scripts/measure_rho.py (local, CPU)
+
+# P11 THE LAB RUN. Follow docs/runbook_p11.md literally; this is its skeleton. Every step takes
+# --dry-run (prints the exact underlying commands). Generation steps resume by re-running them.
+uv run python scripts/run_p11.py prepare                  # pinned fetches + E1 sampled prompts
+uv run python scripts/run_p11.py verify-gpu --model llama31_8b_instruct   # NF4 or STOP
+uv run python scripts/run_p11.py budget                   # GPU-h + red-team --max-frames
+uv run python scripts/run_p11.py smoke --model llama31_8b_instruct        # MUST PASS first
+uv run python scripts/run_p11.py e1 --model llama31_8b_instruct           # then mistral7b_…
+uv run python scripts/run_p11.py crows --model llama31_8b_instruct        # then mistral7b_…
+uv run python scripts/run_p11.py redteam-elicit
+uv run python scripts/run_p11.py redteam-prompts --max-frames <N from budget>
+uv run python scripts/run_p11.py redteam-audit --model llama31_8b_instruct
+uv run python scripts/run_p11.py process                  # scoring→…→figures; CPU is fine
+uv run --extra inference python scripts/run_p11.py smoke --model llama32_1b_instruct  # local, CPU
 
 # P10 figures + tables. Core env, no torch. Every drawn number is audited against a committed
 # artifact as the figure is built, so an untraceable figure is never written.

@@ -1,0 +1,89 @@
+# The P11 run declaration: what the confirmatory lab run executes, and the smoke run that must
+# pass before it.
+#
+# Plain YAML: Hydra composes, the result becomes a dict, and margins.orchestrate.config validates
+# it into a P11Config. No Hydra structured configs, no hydra-zen (PROJECT_CONTEXT.md §6).
+#
+# WHAT THIS FILE IS. The pre-registration (docs/preregistration.md §3.4, §8) fixes the DESIGN: 27
+# prompts per cell x 4 sampled generations = min_cell_n 108, `sampled_v1`, both confirmatory models.
+# This file is the OPERATIONAL record of that design -- the exact seeds, the batch size, where every
+# arm's outputs go -- declared and committed BEFORE the run, so none of it is chosen at the lab.
+# `scripts/run_p11.py` reads it; `docs/runbook_p11.md` is written against it; and
+# `tests/test_p11_orchestration.py` fails if the runbook's commands stop matching it.
+
+key: p11_v1
+
+# VERSION HISTORY
+#   p11_v1@2026-09-23  initial P11 declaration: E1 seeds, the per-model scoring layout, the
+#                      descriptive red-team subset, and the multi-rendering smoke run.
+p11_version: "p11_v1@2026-09-23"
+
+lattice: confirmatory_v1
+
+e1:
+  # The static open_gen arm. The prompt-set CONFIG is stamped greedy_v1; the E1 set is the same
+  # rendering re-stamped `sampled_v1` by `build_prompts.py --decoding` into its own directory.
+  prompt_set: open_gen_v1
+  decoding: sampled_v1
+  prompts_dir: data/prompts/e1_sampled
+
+  # DECIDED 23 Sep 2026 (pre-registration §10, clarification): the config seed + 0..3. Four
+  # DISTINCT seeds per prompt; the harness rejects a repeated one.
+  seeds: [20260908, 20260909, 20260910, 20260911]
+
+  # Fixed for the whole sweep and recorded in every inference manifest. Batch size is part of the
+  # determinism scope (padding changes reduction order), so `run_p11.py` REFUSES to resume a run
+  # under a different batch size. If 8 does not fit a card, start the run over at a smaller one --
+  # never change it mid-run.
+  batch_size: 8
+
+  # Confirmatory models, in the order the runbook runs them.
+  models: [llama31_8b_instruct, mistral7b_instruct_v03]
+
+crows:
+  # The extractive arm (CrowS-Pairs). Not an intersectional estimate: every confirmatory pair is
+  # expected NOT estimable and is excused by P9 (docs/methods.md §2.5). It must still run, because
+  # `crows_pairs` is a declared family source and P9 raises if it is absent.
+  extractive_set: crows_pll_v1
+  prompts: data/prompts/crows_pll_v1.jsonl
+  decoding: pll_v1
+  scoring: crows_pll_v1
+  benchmark: crows_pairs
+
+redteam:
+  # DESCRIPTIVE ARM (21 Sep 2026): powered=False, no p, no q, `redteam` absent from
+  # family_benchmarks. A budget-driven scope choice, never evidence the effects are small.
+  set: cell_targeted_v1
+
+  # DECIDED 23 Sep 2026: ONE sampled generation per audit prompt. The P9 finding is that prompts
+  # per cell bound precision and samples cannot, so a fixed budget is spent on FRAMES (items), and
+  # `--max-frames` is sized from the measured speed of the lab card (`run_p11.py budget`).
+  audit_seeds: [20260908]
+  budget_gpu_hours: 20.0
+
+  # Cells each audit frame renders into: the confirmatory pairs' order-2 cells. Declared so the
+  # budget arithmetic does not have to load the lattice; a test pins it to `target_cells`.
+  target_cells: 80
+
+smoke:
+  # The deliberate MULTI-RENDERING smoke run (decided 21 Sep 2026). Its one job is to reach
+  # attach_wald_p -> correct -> ClaimGate -> a figure on REAL P7 output, which the one-rendering
+  # dev artifact never did -- that is where the P9 family-membership bug hid.
+  #
+  # The minimum that is estimable is ONE confirmatory pair's FULL grid (an empty cell makes the
+  # pair not estimable) with at least 2 items per cell. age x socioeconomic_class is a 3 x 4 grid
+  # (12 cells, non-gender x non-gender); 3 frames x 1 carrier = 3 items per cell; 3 seeds each.
+  # 36 prompts x 3 seeds = 108 generations.
+  pair: [age, socioeconomic_class]
+  frames: [three_words, describe, first_meeting]
+  carrier: person
+  seeds: [20260908, 20260909, 20260910]
+  crows_limit: 40
+  n_resamples: 200
+
+# Seconds per generation MEASURED by the W2 Kaggle timing pilot (Tesla T4, NF4, batch 1,
+# 18 Sep 2026; CLAUDE.md decision #8). Used ONLY as the fallback estimate the runbook quotes before
+# a lab card has been measured; `run_p11.py verify-gpu` measures the real card and supersedes it.
+pilot_sec_per_generation:
+  llama31_8b_instruct: 14.0
+  mistral7b_instruct_v03: 14.8
