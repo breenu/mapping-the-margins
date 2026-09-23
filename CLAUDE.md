@@ -48,10 +48,10 @@ and `core (windows-latest)`, run `35694991682` at commit `0f887b6`) — includin
 `make_figures.py` step, so the one-command regeneration gate is confirmed on both platforms and
 not only on the dev box. **965 tests.**
 
-**P11 ORCHESTRATION ✅ READY — AWAITING THE LAB RUN (23 Sep 2026).** `scripts/run_p11.py` +
+**P11 ORCHESTRATION ✅ READY — RUNBOOK SIGNED OFF 23 Sep 2026 — AWAITING THE LAB RUN.** `scripts/run_p11.py` +
 `margins.orchestrate` + **`docs/runbook_p11.md`** (the exact-command lab procedure). No real 8B
 generation has run; that happens on the university GPU, following the runbook. See "P11
-orchestration as built". **1016 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
+orchestration as built". **1017 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
 decisions below are now built in: the smoke run is `run_p11.py smoke` and MUST PASS first, and the
 red-team arm is a descriptive `--max-frames` subset.
 
@@ -212,8 +212,10 @@ the real stage.** Both P6's Krippendorff blow-up and this were found that way, n
   own prompt files/profiles) and an 8th clause that reads the temperature ACTUALLY recorded on each
   response. Logged as a pre-reg §10 clarification. **⚠ NOT BUILT: the E4 ANALYSIS** (scoring +
   metrics per arm, the `sensitivity` table, fig6). It is CPU-only post-run work; `process` does not
-  touch E4 responses yet. It carries one decision to ask first: standardization across temperature
-  arms (per arm, like per model, vs pooled within model).
+  touch E4 responses yet (a test pins that it never reads or writes the `e4_*` folders).
+  **DECIDED 23 Sep 2026 (pre-reg §10): standardize SEPARATELY per (model × temperature arm), never
+  pooled** — pooling would normalize away the temperature effect RQ4 measures. Build the analysis
+  when the responses come back from the lab.
 - **R2 stays out of this run** (a lightweight subset rerun later).
   tables.
 

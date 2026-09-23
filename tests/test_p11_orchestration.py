@@ -787,3 +787,18 @@ def test_the_e4_smoke_clause_reads_the_temperature_actually_recorded(tmp_path: P
     assert not check_e4_arms(
         [E4Expectation("g", tmp_path / "none", 8, "greedy_v1", 0.0, (1,))]
     ).passed
+
+
+def test_process_leaves_the_e4_responses_for_the_later_analysis(cfg) -> None:  # type: ignore[no-untyped-def]
+    """E4 is generated in the lab session and analysed afterwards (CPU only, built on return).
+
+    `process` must neither read nor write the E4 arms' folders, so nothing it does can consume,
+    overwrite or standardize them under the wrong grouping before that analysis exists.
+    """
+    responses = {
+        (arm, model): f"data/responses/{arm}/{model}/run.jsonl"
+        for arm in plan.ARMS
+        for model in cfg.e1.models
+    }
+    for command in plan.process_commands(cfg, responses=responses):
+        assert not any("e4" in part for part in command.argv), command.render()
