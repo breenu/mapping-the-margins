@@ -213,16 +213,20 @@ def test_token_lookup_covers_both_notebook_hosts() -> None:
     assert 'os.environ.get("HF_TOKEN")' in source
 
 
-def test_pinned_packages_come_from_the_lockfile(pilot: ModuleType) -> None:
+def test_pinned_packages_are_the_ones_the_frozen_run_installed(pilot: ModuleType) -> None:
     """CLAUDE.md forbids installing unpinned "to make it work".
 
     Kaggle's image has no bitsandbytes, so the pilot has to install one -- and the only version it
-    may install is the one the locked linux_x86_64 environment resolves to. Read from ``uv.lock``,
-    never typed, so the two cannot drift.
-    """
-    from scripts.build_pilot_sample import LOCK_PINNED_PACKAGES, locked_versions
+    may install is one the locked linux_x86_64 environment resolved to. The block was generated
+    from ``uv.lock``, never typed.
 
-    assert pilot.PINNED_PACKAGES == locked_versions(LOCK_PINNED_PACKAGES)
+    Like ``test_the_pilot_is_frozen``, this guard INVERTED once the pilot had run. On 12 Oct 2026
+    the lock moved bitsandbytes 0.47.0 -> 0.50.2, because 0.47.0 ships no CUDA 13.0 binary and the
+    locked torch 2.14 links CUDA 13.0 (found by the first ``verify-gpu`` on the lab GPU). The pilot
+    ran under 0.47.0, so its pins are a record of that run and are asserted as such; regenerating
+    them from the live lock would make the file claim a version the run never used.
+    """
+    assert pilot.PINNED_PACKAGES == FROZEN_PINNED_PACKAGES
     assert "bitsandbytes" in pilot.PINNED_PACKAGES, (
         "bitsandbytes must be pinned: its absence on Kaggle is what broke the first pilot run"
     )
@@ -523,6 +527,16 @@ def test_single_model_extrapolation_says_it_covers_one_model(
 #: The generated block, frozen at the state the pilot was RUN against. See
 #: ``test_the_pilot_is_frozen``.
 FROZEN_BLOCK_SHA256 = "e90bf57230718964ac0eab333cfac9faf56a70dabc985515a5bb33b0a681892f"
+
+#: The packages the frozen run installed, as resolved by ``uv.lock`` at the time. See
+#: ``test_pinned_packages_are_the_ones_the_frozen_run_installed``.
+FROZEN_PINNED_PACKAGES = {
+    "bitsandbytes": "0.47.0",
+    "huggingface-hub": "0.36.2",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.22.2",
+    "transformers": "4.57.6",
+}
 
 
 def generated_block(path: Path) -> str:

@@ -96,14 +96,15 @@ wheels = [
 
 [[package]]
 name = "bitsandbytes"
-version = "0.47.0"
+version = "0.50.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
+    { name = "packaging" },
     { name = "torch" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/40/91f1a5a694f434bc13cba160045fdc4e867032e627b001bf411048fefd9c/bitsandbytes-0.47.0-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:68f3fffd494a47ed1fd7593bfc5dd2ac69b68260599b71b4c4b3a32f90f3b184", size = 61284639, upload-time = "2025-08-11T18:51:23.581Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/6e/e4e8b75716dbe5e50964f070266e06f4e6806ce051bfb97f52ee162b9310/bitsandbytes-0.50.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:55348a9a4a21bfd99cf8c7b32fe67b4030ae5c2a05738e03c1747f65fa6ec283", size = 43139553, upload-time = "2026-08-27T00:10:54.751Z" },
 ]
 
 [[package]]
@@ -572,7 +573,7 @@ llamacpp = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'inference'", specifier = ">=0.33,<2" },
-    { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'inference'", specifier = ">=0.43,<0.48" },
+    { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'inference'", specifier = ">=0.50,<0.51" },
     { name = "datasets", marker = "sys_platform == 'linux' and extra == 'inference'", specifier = ">=2.20,<4" },
     { name = "detoxify", marker = "sys_platform == 'linux' and extra == 'inference'", specifier = ">=0.5,<0.6" },
     { name = "evaluate", marker = "sys_platform == 'linux' and extra == 'inference'", specifier = ">=0.4,<0.5" },
