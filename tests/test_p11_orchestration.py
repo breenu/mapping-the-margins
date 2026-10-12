@@ -264,6 +264,69 @@ def test_the_smoke_run_leaves_the_committed_results_untouched(tmp_path: Path) ->
     )
 
 
+def test_gpu_steps_run_in_their_own_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model-loading step must not share a process with the next one.
+
+    The first lab smoke run OOMed on its fourth NF4 load: in-process, each model stayed allocated
+    after its script's ``main()`` returned. A child process gives the GPU memory back on exit.
+    """
+    run_p11 = _script("run_p11")
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    def fake_run(argv: list[str], check: bool) -> Done:
+        calls.append(argv)
+        return Done()
+
+    in_process: list[str] = []
+
+    class Script:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def main(self, argv: list[str]) -> int:
+            in_process.append(self.name)
+            return 0
+
+    monkeypatch.setattr(run_p11.subprocess, "run", fake_run)
+    monkeypatch.setattr(run_p11, "_load_script", Script)
+
+    cfg = load_p11_config()
+    layout = plan.SmokeLayout()
+    commands = [
+        *plan.smoke_inference(cfg, DEV_MODEL, layout),
+        *plan.smoke_e4_commands(cfg, DEV_MODEL, layout),
+    ]
+    gpu = [command for command in commands if command.script == "run_inference"]
+    assert len(gpu) == 4  # open_gen, crows, E4 t1.0, E4 greedy: the four loads that OOMed
+    for command in commands:
+        run_p11.execute(command)
+    assert len(calls) == len(gpu)
+    for argv, command in zip(calls, gpu, strict=True):
+        assert Path(argv[1]).name == "run_inference.py"
+        assert tuple(argv[2:]) == command.argv
+    # The CPU-only steps (prompt building) still run in-process.
+    assert in_process and "run_inference" not in in_process
+
+
+def test_a_failed_gpu_subprocess_stops_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_p11 = _script("run_p11")
+
+    class Failed:
+        returncode = 1
+
+    monkeypatch.setattr(run_p11.subprocess, "run", lambda argv, check: Failed())
+    with pytest.raises(run_p11.StepFailedError, match="exited 1"):
+        run_p11.execute(plan.Command("run_inference", ("--model", DEV_MODEL)))
+
+
+def test_the_subprocess_path_really_launches_the_script() -> None:
+    """No mock: the child is the real script file under the real interpreter."""
+    _script("run_p11").execute(plan.Command("run_scoring", ("--help",)))
+
+
 # ---------------------------------------------------------------------------------------------
 # E: processing, two models, per-model standardization, the red-team arm DESCRIPTIVE
 # ---------------------------------------------------------------------------------------------

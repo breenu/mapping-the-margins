@@ -18,7 +18,9 @@ place a P11 argv is written, and ``tests/test_p11_orchestration.py`` parses ever
 against the real script's parser.
 
 **This script measures nothing itself.** It calls the existing P2-P10 scripts' ``main(argv)`` in
-order, echoing each call so the terminal log is a complete, replayable record. What it adds is
+order, echoing each call so the terminal log is a complete, replayable record. The scripts that
+load a model onto the GPU run as a child process instead (``SUBPROCESS_SCRIPTS``), so each one's
+GPU memory is released when it exits. What it adds is
 refusal: it will not start a confirmatory generation step from a modified worktree, from a commit
 older than ``prereg-v1``, or on a model that did not load at NF4 -- the three ways a lab run could
 spend days producing something that is not the pre-registered measurement.
@@ -91,15 +93,30 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
+#: Scripts that load a model onto the GPU. Each runs in its OWN process, so the OS reclaims every
+#: byte of GPU memory when it exits. Found by the first lab smoke run (12 Oct 2026, RTX A4000):
+#: in-process, each NF4 model load left its ~4.8 GB allocated after `main()` returned, and the
+#: fourth load in one smoke run (open_gen, crows, E4 t1.0, E4 greedy) OOMed at 14.4 GB = 3 x 4.8.
+#: Not reproducible on CPU, where the model is freed on return, so the release is enforced by
+#: process boundary rather than by trusting gc/empty_cache to find whatever holds it on CUDA.
+SUBPROCESS_SCRIPTS = frozenset({"run_inference", "run_scoring"})
+
+
 def execute(command: plan.Command, *, dry_run: bool = False) -> None:
     """Echo, then run, one command. Raises :class:`StepFailedError` on a non-zero exit."""
     print(f"\n$ {command.render()}", flush=True)
     if dry_run:
         return
-    try:
-        code = _load_script(command.script).main(list(command.argv))
-    except SystemExit as exit_:  # argparse errors and explicit SystemExit(...) calls
-        code = exit_.code if isinstance(exit_.code, int) else 1
+    if command.script in SUBPROCESS_SCRIPTS:
+        # The same interpreter (the uv venv) and the same environment, so HF_TOKEN/HF_HOME carry
+        # over; the working directory is inherited, so the relative paths in argv resolve alike.
+        script = SCRIPTS_DIR / f"{command.script}.py"
+        code = subprocess.run([sys.executable, str(script), *command.argv], check=False).returncode
+    else:
+        try:
+            code = _load_script(command.script).main(list(command.argv))
+        except SystemExit as exit_:  # argparse errors and explicit SystemExit(...) calls
+            code = exit_.code if isinstance(exit_.code, int) else 1
     if code:
         raise StepFailedError(f"exited {code}: {command.render()}")
 
