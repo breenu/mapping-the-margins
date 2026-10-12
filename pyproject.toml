@@ -55,6 +55,13 @@ inference = [
     "accelerate>=0.33,<2",
     "huggingface-hub>=0.36.2",
     "bitsandbytes>=0.50,<0.51; sys_platform == 'linux'",
+    # The pinned Mistral revision has no fast-tokenizer file that loads on its own: transformers
+    # builds LlamaTokenizerFast from the sentencepiece model, which needs BOTH packages. Kaggle's
+    # image ships them, so the pilot never noticed; the first lab `verify-gpu` did. sentencepiece
+    # was already present (a detoxify transitive) -- declared here because the tokenizer depends
+    # on it, not because resolution changes.
+    "sentencepiece>=0.2,<0.3; sys_platform == 'linux'",
+    "protobuf>=5,<8; sys_platform == 'linux'",
     "datasets>=2.20,<4; sys_platform == 'linux'",
     "evaluate>=0.4,<0.5; sys_platform == 'linux'",
     "detoxify>=0.5,<0.6; sys_platform == 'linux'",
