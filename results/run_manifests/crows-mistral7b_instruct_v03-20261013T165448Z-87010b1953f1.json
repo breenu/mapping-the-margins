@@ -1,0 +1,106 @@
+{
+  "config": {
+    "benchmark_name": null,
+    "data_dir": "data",
+    "decoding_name": "pll_v1",
+    "lattice_name": "confirmatory_v1",
+    "manifest": {
+      "manifest_subdir": "run_manifests",
+      "record_environment_fingerprint": true,
+      "write_manifest": true
+    },
+    "metrics_name": "emergence_v1",
+    "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
+    "model_name": "mistral7b_instruct_v03",
+    "model_revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
+    "output_dir": "outputs",
+    "quant": "nf4",
+    "redteam_name": null,
+    "results_dir": "results",
+    "run_name": "crows-mistral7b_instruct_v03",
+    "scoring_name": "default_v1",
+    "seed": 20260908,
+    "stats_name": "confirmatory_v1"
+  },
+  "config_hash": "87010b1953f180594d51d4a94becbc58f74422896ea3743656d6ddb4ac0a5d50",
+  "created_at": "2026-10-13T16:55:38.831072Z",
+  "determinism_note": "Determinism scope. Same-seed greedy decoding produces identical token sequences on CPU at a fixed thread count AND a fixed batch size, with the torch version and BLAS backend recorded in this manifest. Batch size is load-bearing here: padding a batch changes floating-point reduction order, so the same prompt run alone and run inside a batch may diverge -- the batch size used is recorded in this manifest's inference block. Log-probabilities match to a documented tolerance rather than bit-exactly. On GPU the guarantee is metric-level only, within a reported tolerance: kernel selection, atomic reduction order, and cuBLAS workspace reuse are not fully controllable. Changing thread count, batch size, BLAS backend, torch version, or hardware invalidates bit-level comparison. No unconditional bit-identity is claimed.",
+  "environment": {
+    "blas_backend": "scipy-openblas 0.3.31.188.0",
+    "cuda_device_in_use": "NVIDIA RTX A4000 (cuda:0, sm_86)",
+    "cuda_devices": [
+      "NVIDIA RTX A4000, 16376 MiB"
+    ],
+    "cudnn_version": 92400,
+    "nvidia_driver_version": "580.178.04",
+    "thread_env": {
+      "MKL_NUM_THREADS": null,
+      "NUMEXPR_NUM_THREADS": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null
+    },
+    "torch_blas_info": "mkl",
+    "torch_cuda_available": true,
+    "torch_cuda_version": "13.0",
+    "torch_num_threads": 24,
+    "torch_version": "2.14.0+cu130"
+  },
+  "git_dirty": false,
+  "git_sha": "2d52acf3de9617f15899ca65bdcd33d53cae3677",
+  "inference": {
+    "batch_size": 8,
+    "chat_template_sha256": "e16746b40344d6c5b5265988e0328a0bf7277be86f1c335156eae07e29c82826",
+    "decoding_hash": "029276cc4f3b6cbc7e55eae2a5007879ff45d48392c947cc77016d007ac69fcf",
+    "decoding_key": "pll_v1",
+    "device": "cuda",
+    "dtype": "bfloat16",
+    "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
+    "model_name": "mistral7b_instruct_v03",
+    "model_revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
+    "prompt_format": "raw",
+    "quant_actual": "nf4",
+    "quant_fallback_reason": null,
+    "quant_requested": "nf4",
+    "seeds": [
+      20260908
+    ]
+  },
+  "input_checksums": {
+    "chat_template:mistral7b_instruct_v03": "e16746b40344d6c5b5265988e0328a0bf7277be86f1c335156eae07e29c82826",
+    "decoding_config": "03594b1581527ce246727fb98add1879e6c8729732cb8be538a078f40b752151",
+    "extractive_set_config": "8fd9a72a60cf3afa89ed6673748afb0b1fa180828e1daa95fa4f6f16829f8630",
+    "lattice_config": "ed921e3363417f55fb72658c756a747c5c9958056eec51d67de85d6693f2da45",
+    "model_config": "9861e19bbabbd7bac21669fdff751e660bf7da72a6857b0a75004d1fa0913afa"
+  },
+  "metrics": null,
+  "package_versions": {
+    "bitsandbytes": "0.50.2",
+    "hydra-core": "1.3.6",
+    "jinja2": "3.1.6",
+    "krippendorff": "0.8.2",
+    "matplotlib": "3.11.1",
+    "numpy": "2.4.6",
+    "omegaconf": "2.3.1",
+    "pandas": "2.3.3",
+    "pingouin": "0.5.5",
+    "pyarrow": "25.0.1",
+    "pydantic": "2.13.5",
+    "rapidfuzz": "3.14.6",
+    "scikit-learn": "1.9.0",
+    "scipy": "1.17.1",
+    "seaborn": "0.13.2",
+    "statsmodels": "0.14.6",
+    "torch": "2.14.0",
+    "transformers": "4.57.6",
+    "vaderSentiment": "3.3.2"
+  },
+  "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "python_version": "3.11.17",
+  "quant": "nf4",
+  "redteam": null,
+  "run_id": "crows-mistral7b_instruct_v03-20261013T165448Z-87010b1953f1",
+  "scoring": null,
+  "seed": 20260908,
+  "stats": null
+}

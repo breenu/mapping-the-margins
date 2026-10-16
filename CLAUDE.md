@@ -48,7 +48,7 @@ and `core (windows-latest)`, run `35694991682` at commit `0f887b6`) — includin
 `make_figures.py` step, so the one-command regeneration gate is confirmed on both platforms and
 not only on the dev box. **965 tests.**
 
-**P11 ORCHESTRATION ✅ READY — RUNBOOK SIGNED OFF 23 Sep 2026 — AWAITING THE LAB RUN.** `scripts/run_p11.py` +
+**P11 ORCHESTRATION ✅ — RUNBOOK SIGNED OFF 23 Sep 2026 — LAB RUN DONE 12–15 Oct (see "P11 LAB RUN" below).** `scripts/run_p11.py` +
 `margins.orchestrate` + **`docs/runbook_p11.md`** (the exact-command lab procedure). No real 8B
 generation has run; that happens on the university GPU, following the runbook. See "P11
 orchestration as built". **1017 tests**, all four gates green. **NEXT: the lab run, then P12 (paper), P13 (release).** Both 21 Sep
@@ -60,12 +60,34 @@ torch 2.14+cu130, bitsandbytes 0.50.2), a shared teaching-lab desktop. Smoke PAS
 responses**: E1 11,880 × 2, CrowS 1,352 × 2, E4 t1.0 1,296 × 2 + greedy 432 × 2, red-team elicit
 1,440 (→ 6,358 frames, 51 used = 8,160 audit prompts) + audit 8,160 × 2. Measured ~2.8–4 s/gen at
 batch 8 (≈1,000–1,300/h), ~40 GPU-h total. Two student shutdowns, both resumed with no loss.
-`process` wrote real `results/tables/` + 5 `[REAL]` figures, audits clean. **NOT YET HANDED BACK /
-COMMITTED / REVIEWED.** Three lab-found fixes, all pushed before E1 (manifests record `2d52acf`):
+`process` wrote real `results/tables/` + 5 `[REAL]` figures, audits clean. **HANDED BACK + COMMITTED
+16 Oct 2026** (27 lab manifests at `2d52acf`, `git_dirty: false`).
+
+**⚠ THE MEASURED RESULT (16 Oct 2026) — record of fact; framing is the human's call at P12:**
+- **0 / 168 family terms significant after BH-FDR** (14 nominal p < .05 pre-correction ≈ 8.4
+  expected by chance; **B3 also 14/168**). Confirmatory γ mostly within ±0.15 SD vs the 0.5 SD MDE.
+- **All four (model × harm type) DESCRIPTIVE-ONLY** by the pre-registered 0.5 drift rule: max drift
+  ratio 7.94 / 10.99 (Llama regard / toxicity), 5.97 / 5.58 (Mistral); toxic_bert over threshold in
+  all 14 of its comparisons. **Go/no-go criterion 3 (≥1 harm type survives) is NOT met.**
+- **Not a scale artefact — checked:** drift is fitted on scores z-scored within the CONTROL condition,
+  the model within the MODEL condition, but the control-text raw SD is LARGER (toxic_bert 0.09–0.13
+  vs 0.008–0.010 on model output; regard 0.29–0.31 vs 0.10–0.14), so a raw-scale ratio would be
+  larger still. toxic_bert scores identity-dense neutral sentences ~0.06 vs ~0.003 for model text.
+- Never report this as "the models have no intersectional bias". What is measured: no ≥0.5 SD
+  interaction detected, and the standard instruments carry identity interaction larger than the
+  signal — a single-classifier, uncorrected, drift-free audit of the same data would have reported
+  14 "significant" effects.
+- **R2 consequence, stated not changed:** with every verdict `descriptive_only` (scorer-driven, which
+  R2 does not touch), the identical-verdict half of the pass rule is near-automatic; the in-CI half
+  carries the weight. Say so in the write-up.
+- `make_figures.py` now falls back PER TABLE when the default real dir lacks one (E4 `sensitivity`,
+  `frame_breakdown` → fig6/fig7 stay banner-stamped FIXTURE); an explicit `--table-dir` stays strict.
+
+Three lab-found fixes, all pushed before E1 (manifests record `2d52acf`):
 `bitsandbytes` 0.47→0.50.2 (no cu130 binary), `protobuf` added (Mistral tokenizer), GPU scripts run
 as a **subprocess** in `run_p11` (in-process NF4 loads were never freed → smoke OOM at 3 × 4.8 GB).
-Runbook errata to fix: scoring runs on **CPU** (the classifier is never moved to CUDA — kept, as it
-makes scores machine-independent), and `| tee` block-buffers the child's output.
+Runbook errata, FIXED 16 Oct: scoring runs on **CPU** (the classifier is never moved to CUDA — kept, as it
+makes scores machine-independent; runbook corrected), and `| tee` block-buffered the child's output (now run with `PYTHONUNBUFFERED=1`).
 **R2 DECIDED 16 Oct 2026 (pre-reg §10, before any R2 data):** class × race, both models,
 `sampled_v1` × E1's 4 seeds (vs E1) + `greedy_v1` × 1 (vs E4 greedy); Kaggle T4 primary, lab A4000
 same-hardware reference; rerun standardized with the ORIGINAL run's constants; P9 re-run with the
