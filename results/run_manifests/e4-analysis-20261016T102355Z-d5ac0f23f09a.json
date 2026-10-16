@@ -1,0 +1,92 @@
+{
+  "config": {
+    "benchmark_name": null,
+    "data_dir": "data",
+    "decoding_name": "greedy_v1",
+    "lattice_name": "confirmatory_v1",
+    "manifest": {
+      "manifest_subdir": "run_manifests",
+      "record_environment_fingerprint": true,
+      "write_manifest": true
+    },
+    "metrics_name": "emergence_v1",
+    "model_id": null,
+    "model_name": null,
+    "model_revision": null,
+    "output_dir": "outputs",
+    "quant": "nf4",
+    "redteam_name": null,
+    "results_dir": "results",
+    "run_name": "e4-analysis",
+    "scoring_name": "default_v1",
+    "seed": 20260908,
+    "stats_name": "confirmatory_v1"
+  },
+  "config_hash": "d5ac0f23f09aecc5359a12eef5116e73ca46680c157714e9e2d0b08542d84aa2",
+  "created_at": "2026-10-16T10:23:55.769868Z",
+  "determinism_note": "Determinism scope. Same-seed greedy decoding produces identical token sequences on CPU at a fixed thread count AND a fixed batch size, with the torch version and BLAS backend recorded in this manifest. Batch size is load-bearing here: padding a batch changes floating-point reduction order, so the same prompt run alone and run inside a batch may diverge -- the batch size used is recorded in this manifest's inference block. Log-probabilities match to a documented tolerance rather than bit-exactly. On GPU the guarantee is metric-level only, within a reported tolerance: kernel selection, atomic reduction order, and cuBLAS workspace reuse are not fully controllable. Changing thread count, batch size, BLAS backend, torch version, or hardware invalidates bit-level comparison. No unconditional bit-identity is claimed.",
+  "environment": {
+    "blas_backend": "scipy-openblas 0.3.31.188.0",
+    "cuda_device_in_use": null,
+    "cuda_devices": [
+      "NVIDIA GeForce MX550, 2048 MiB"
+    ],
+    "cudnn_version": null,
+    "nvidia_driver_version": "592.82",
+    "thread_env": {
+      "MKL_NUM_THREADS": null,
+      "NUMEXPR_NUM_THREADS": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null
+    },
+    "torch_blas_info": "mkl",
+    "torch_cuda_available": false,
+    "torch_cuda_version": null,
+    "torch_num_threads": 10,
+    "torch_version": "2.14.0+cpu"
+  },
+  "git_dirty": true,
+  "git_sha": "996337ea22adb52bcb3a4db2520b626312eea9de",
+  "inference": null,
+  "input_checksums": {
+    "lattice_config": "ed921e3363417f55fb72658c756a747c5c9958056eec51d67de85d6693f2da45",
+    "metrics_config": "76a7f1d0a120ae0d5b90f87cc00b756799b7e2846e07b54185728bc1ad2cc871",
+    "scores:llama31_8b_instruct:greedy": "73466c29f33de17238c697daa8f028feca6744c10125b03cdc20ec95167470fc",
+    "scores:llama31_8b_instruct:t07": "b99f9a63dbf329dc8746b1916ca1dd0ccbde2c7a436e1eea19d89efbd27e0528",
+    "scores:llama31_8b_instruct:t10": "43c6baaab7eb9e96f920bd6d36c58e62e8e9b3276a3931a09a53d80f25c432ec",
+    "scores:mistral7b_instruct_v03:greedy": "e17b590a79530cf226d1157e1caa2d37bb94ab10a4ee8be25ee3bfbf71fb9c07",
+    "scores:mistral7b_instruct_v03:t07": "667d5929fb92d6cfe877e575b9cc0f272912082a3892d33f5a374069767dc983",
+    "scores:mistral7b_instruct_v03:t10": "49a52ebcddad4c80329fb175070411755d1b71bbbb11a81e0b4cdff090625f8e"
+  },
+  "metrics": null,
+  "package_versions": {
+    "bitsandbytes": "not-installed",
+    "hydra-core": "1.3.6",
+    "jinja2": "3.1.6",
+    "krippendorff": "0.8.2",
+    "matplotlib": "3.11.1",
+    "numpy": "2.4.6",
+    "omegaconf": "2.3.1",
+    "pandas": "2.3.3",
+    "pingouin": "0.5.5",
+    "pyarrow": "25.0.1",
+    "pydantic": "2.13.5",
+    "rapidfuzz": "3.14.6",
+    "scikit-learn": "1.9.0",
+    "scipy": "1.17.1",
+    "seaborn": "0.13.2",
+    "statsmodels": "0.14.6",
+    "torch": "2.14.0",
+    "transformers": "4.57.6",
+    "vaderSentiment": "3.3.2"
+  },
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.11.16",
+  "quant": "nf4",
+  "redteam": null,
+  "run_id": "e4-analysis-20261016T102355Z-d5ac0f23f09a",
+  "scoring": null,
+  "seed": 20260908,
+  "stats": null
+}

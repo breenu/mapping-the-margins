@@ -122,7 +122,13 @@ pooled fits, `seed_group` 0 = pooled; all nine free terms reported/drawn, no sel
   calibration samples drawn across BOTH models (200/harm type, `build_calibration_sample.py` now
   takes several `--scores/--responses`); sheets in `data/labels/`; definitions in
   **`docs/labelling_guide.md`**. Runbook section G (lab R2 + e4-process).
-**NEXT: e4-process (real) → user labels → lab + Kaggle R2 runs → r2-process → P12.**
+**E4 RESULT (16 Oct 2026, descriptive, scored on the dev box at `996337e`):** `sensitivity` 360
+rows; fig6 REAL (6/7 figures real; fig7 frame_breakdown still FIXTURE). Pooled arms move at most
+**0.115 SD (T=1.0 vs 0.7)** and **0.188 SD (greedy vs 0.7)**; seed groups span up to 0.479 / 0.358
+SD (T=0.7 / 1.0). ⚠ For toxicity the arms sit further from zero than the headline E1 estimate: the
+within-subset z (16 cells) stretches toxic_bert's small raw spread relative to the 110-cell headline
+scale — the reference marker exists to show this; say it in the paper, do not "fix" it.
+**NEXT: user labels → lab + Kaggle R2 runs → r2-process → P12.**
 
 ### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
