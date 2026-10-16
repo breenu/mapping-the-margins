@@ -495,32 +495,76 @@ def _single_axis_rows(lattice: DeclaredLattice) -> list[dict[str, Any]]:
 
 
 def _sensitivity_rows(designs: Sequence[PairDesign]) -> list[dict[str, Any]]:
-    """E4: the headline term re-estimated across the temperature grid and seed groups."""
+    """E4: every free term of the flagship pair, per temperature arm, per seed group and pooled.
+
+    Shaped like ``scripts/run_e4_analysis.py``'s output: ``seed_group`` 0 is the arm's pooled fit,
+    1..n its seeds; the greedy arm has one seed, so only the pooled group.
+    """
     design = next(d for d in designs if d.axis_pair == FLAGSHIP_PAIR)
-    term = free_interaction_terms(design)[0]
+    groups = {0.0: (0,), 0.7: (0, 1, 2, 3, 4), 1.0: (0, 1, 2, 3)}
     rows: list[dict[str, Any]] = []
     for model in CONFIRMATORY_MODELS:
         for harm in HARM_TYPES:
-            for temperature in (0.0, 0.7, 1.0):
-                for seed_group in (1, 2, 3):
-                    rng = _rng("sens", model, harm, temperature, seed_group)
-                    centre = 0.62 if harm == "regard" else 0.44
-                    spread = 0.04 + 0.14 * temperature
-                    estimate = round(float(centre + rng.normal(0.0, spread)), 6)
-                    half = round(float(0.10 + 0.09 * temperature), 6)
+            for term in free_interaction_terms(design):
+                centre = float(_rng("sens-centre", model, harm, term).normal(0.0, 0.12))
+                for temperature, seed_groups in groups.items():
+                    for seed_group in seed_groups:
+                        rng = _rng("sens", model, harm, term, temperature, seed_group)
+                        spread = (0.02 if seed_group == 0 else 0.05) + 0.06 * temperature
+                        estimate = round(float(centre + rng.normal(0.0, spread)), 6)
+                        half = round(
+                            float((0.07 if seed_group == 0 else 0.13) + 0.04 * temperature), 6
+                        )
+                        rows.append(
+                            {
+                                "benchmark": GENERATION_BENCHMARK,
+                                "model_id": model,
+                                "harm_type": harm,
+                                "axis_a": design.axis_a,
+                                "axis_b": design.axis_b,
+                                "term": term,
+                                "temperature": temperature,
+                                "seed_group": seed_group,
+                                "estimate": estimate,
+                                "ci_low": round(estimate - half, 6),
+                                "ci_high": round(estimate + half, 6),
+                                **_FIXTURE,
+                            }
+                        )
+    return rows
+
+
+def _reproducibility_rows(designs: Sequence[PairDesign]) -> list[dict[str, Any]]:
+    """R2: the flagship pair's family terms, original against a rerun, per machine."""
+    design = next(d for d in designs if d.axis_pair == FLAGSHIP_PAIR)
+    rows: list[dict[str, Any]] = []
+    for machine in ("kaggle", "lab"):
+        for model in CONFIRMATORY_MODELS:
+            for harm in HARM_TYPES:
+                for term in free_interaction_terms(design):
+                    rng = _rng("r2", machine, model, harm, term)
+                    original = round(float(rng.normal(0.0, 0.12)), 6)
+                    se = round(float(rng.uniform(0.04, 0.07)), 6)
+                    rerun = round(original + float(rng.normal(0.0, 0.4 * se)), 6)
+                    low, high = round(original - 1.96 * se, 6), round(original + 1.96 * se, 6)
                     rows.append(
                         {
+                            "machine": machine,
                             "benchmark": GENERATION_BENCHMARK,
                             "model_id": model,
                             "harm_type": harm,
                             "axis_a": design.axis_a,
                             "axis_b": design.axis_b,
                             "term": term,
-                            "temperature": temperature,
-                            "seed_group": seed_group,
-                            "estimate": estimate,
-                            "ci_low": round(estimate - half, 6),
-                            "ci_high": round(estimate + half, 6),
+                            "original_estimate": original,
+                            "original_se": se,
+                            "original_ci_low": low,
+                            "original_ci_high": high,
+                            "rerun_estimate": rerun,
+                            "difference_in_se": round(abs(rerun - original) / se, 6),
+                            "inside_original_ci": low <= rerun <= high,
+                            "original_status": "descriptive_only",
+                            "rerun_status": "descriptive_only",
                             **_FIXTURE,
                         }
                     )
@@ -570,6 +614,7 @@ def build_fixture_tables(lattice: DeclaredLattice) -> dict[str, list[dict[str, A
         "fit_reports": _fit_report_rows(designs, confirmatory),
         "single_axis_cells": _single_axis_rows(lattice),
         "sensitivity": _sensitivity_rows(designs),
+        "reproducibility": _reproducibility_rows(designs),
         "frame_breakdown": _frame_rows(),
     }
 

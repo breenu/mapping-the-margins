@@ -24,6 +24,7 @@ __all__ = [
     "E4Arm",
     "E4DecodingArm",
     "P11Config",
+    "R2Arm",
     "RedTeamArm",
     "SmokeSettings",
     "default_p11_config_dir",
@@ -174,6 +175,41 @@ class SmokeSettings(BaseModel):
         return frames
 
 
+class R2Arm(BaseModel):
+    """R2, the reproducibility rerun (pre-registration §10, 16 Oct 2026).
+
+    Regenerates the E4 subset under E1's own sampled profile and seeds -- compared against E1's
+    responses -- and under the E4 greedy arm's profile and seed -- compared against E4's. Nothing
+    here is chosen freely: the validator on :class:`P11Config` pins every value to the arm it is
+    compared against, because a rerun under different settings would not be a rerun.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    pair: tuple[str, str]
+    machines: tuple[str, ...] = Field(min_length=1)
+    sampled_decoding: str = Field(min_length=1)
+    sampled_seeds: tuple[int, ...]
+    sampled_prompts_dir: Path
+    greedy_arm: str = Field(min_length=1)
+
+    @field_validator("sampled_seeds")
+    @classmethod
+    def _check_seeds(cls, seeds: tuple[int, ...]) -> tuple[int, ...]:
+        return _distinct_seeds(seeds)
+
+    @field_validator("machines")
+    @classmethod
+    def _machine_names(cls, machines: tuple[str, ...]) -> tuple[str, ...]:
+        # A machine name becomes a directory name (data/responses/r2_<machine>_sampled).
+        for machine in machines:
+            if not machine.isidentifier() or machine != machine.lower():
+                raise ValueError(f"R2 machine names must be lower-case identifiers: {machine!r}")
+        if len(set(machines)) != len(machines):
+            raise ValueError(f"R2 machine names must be distinct, got {machines}")
+        return machines
+
+
 class P11Config(BaseModel):
     """The whole P11 declaration."""
 
@@ -187,7 +223,29 @@ class P11Config(BaseModel):
     crows: CrowsArm
     redteam: RedTeamArm
     smoke: SmokeSettings
+    r2: R2Arm
     pilot_sec_per_generation: dict[str, float]
+
+    @model_validator(mode="after")
+    def _r2_reruns_what_it_compares_against(self) -> P11Config:
+        r2 = self.r2
+        if r2.pair != self.e4.pair:
+            raise ValueError(f"R2 reruns the E4 subset {self.e4.pair}, not {r2.pair}")
+        if r2.sampled_decoding != self.e1.decoding or r2.sampled_seeds != self.e1.seeds:
+            raise ValueError(
+                "R2's sampled arm is compared against E1's own responses, so it must use E1's "
+                f"decoding and seeds ({self.e1.decoding}, {self.e1.seeds}); got "
+                f"({r2.sampled_decoding}, {r2.sampled_seeds})"
+            )
+        greedy = [arm for arm in self.e4.arms if arm.name == r2.greedy_arm]
+        if not greedy or greedy[0].kind != "greedy":
+            raise ValueError(f"R2's greedy_arm {r2.greedy_arm!r} must name a greedy E4 arm")
+        return self
+
+    @property
+    def r2_greedy(self) -> E4DecodingArm:
+        """The E4 greedy arm R2 regenerates (its prompts, profile and single seed)."""
+        return next(arm for arm in self.e4.arms if arm.name == self.r2.greedy_arm)
 
     @model_validator(mode="after")
     def _pilot_covers_the_models(self) -> P11Config:

@@ -328,12 +328,45 @@ FRAME_BREAKDOWN = TableSpec(
     key_columns=("benchmark", "model_id", "harm_type", "frame"),
 )
 
+REPRODUCIBILITY = TableSpec(
+    name="reproducibility",
+    title="R2: the class x race family terms, original against an independent rerun",
+    caption=(
+        "Each family term's reported estimate and 95% CI beside the rerun's estimate (scored "
+        "with the original run's standardization constants), the difference in units of the "
+        "original SE, and the ClaimGate verdict before and after the rerun is substituted into "
+        "the family. Pre-registered pass rule: every rerun estimate inside the original CI and "
+        "every verdict identical."
+    ),
+    columns=(
+        Column("machine"),
+        Column("benchmark"),
+        Column("model_id", label="model"),
+        Column("harm_type", label="harm type"),
+        Column("axis_a", label="axis A"),
+        Column("axis_b", label="axis B"),
+        Column("term"),
+        Column("original_estimate", "float", digits=3, label="original"),
+        Column("original_se", "float", digits=3, label="original SE"),
+        Column("original_ci_low", "float", digits=3, label="CI low"),
+        Column("original_ci_high", "float", digits=3, label="CI high"),
+        Column("rerun_estimate", "float", digits=3, label="rerun"),
+        Column("difference_in_se", "float", digits=2, label="|diff| (SE)"),
+        Column("inside_original_ci", "bool", label="in CI"),
+        Column("original_status", label="verdict"),
+        Column("rerun_status", label="rerun verdict"),
+        _STATUS_COLUMN,
+    ),
+    key_columns=("machine", "benchmark", "model_id", "harm_type", "axis_a", "axis_b", "term"),
+)
+
 TABLE_SPECS: Final[tuple[TableSpec, ...]] = (
     DESCRIPTIVE_ONLY,
     DRIFT_SIDE_BY_SIDE,
     EMERGENCE_EFFECTS,
     FIT_REPORTS,
     FRAME_BREAKDOWN,
+    REPRODUCIBILITY,
     SENSITIVITY,
     SINGLE_AXIS_CELLS,
 )

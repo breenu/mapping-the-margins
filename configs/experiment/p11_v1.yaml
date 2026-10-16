@@ -17,7 +17,9 @@ key: p11_v1
 #   p11_v1@2026-09-23  initial P11 declaration: E1 seeds, the per-model scoring layout, the
 #                      descriptive red-team subset, and the multi-rendering smoke run. Same day,
 #                      before any lab run: the E4 sensitivity arms added (approved scope).
-p11_version: "p11_v1@2026-09-23"
+#   p11_v1@2026-10-16  R2 added AFTER the lab run, as pre-registered that morning (§10): the
+#                      reproducibility rerun. No earlier block changed.
+p11_version: "p11_v1@2026-10-16"
 
 lattice: confirmatory_v1
 
@@ -112,6 +114,23 @@ smoke:
   # the lab run uses, on their first `e4_limit` prompts -- enough to prove each profile loads and
   # generates, not to measure anything.
   e4_limit: 8
+
+r2:
+  # R2, the reproducibility rerun. DECIDED 16 Oct 2026, before any R2 data existed (pre-reg §10).
+  # The E4 subset (class x race, 432 prompts), both confirmatory models, regenerated twice:
+  #   sampled  E1's own profile and seeds, compared against E1's responses on these prompts. The
+  #            prompt file is the E4 grid stamped `sampled_v1`, so its ids ARE E1's ids, and every
+  #            rerun response shares its response_id with the E1 response it reproduces.
+  #   greedy   the E4 greedy arm's prompts, profile and single seed, compared against E4 greedy.
+  # Run on each machine below, into its own directories (data/responses/r2_<machine>_<arm>):
+  # `kaggle` (free-tier T4, the primary evidence) and `lab` (the A4000 the original run used, the
+  # same-hardware reference). The P11Config validator pins every value here to the arm compared.
+  pair: [socioeconomic_class, race_ethnicity]
+  machines: [kaggle, lab]
+  sampled_decoding: sampled_v1
+  sampled_seeds: [20260908, 20260909, 20260910, 20260911]
+  sampled_prompts_dir: data/prompts/r2_sampled
+  greedy_arm: greedy
 
 # Seconds per generation MEASURED by the W2 Kaggle timing pilot (Tesla T4, NF4, batch 1,
 # 18 Sep 2026; CLAUDE.md decision #8). Used ONLY as the fallback estimate the runbook quotes before

@@ -93,9 +93,36 @@ makes scores machine-independent; runbook corrected), and `| tee` block-buffered
 same-hardware reference; rerun standardized with the ORIGINAL run's constants; P9 re-run with the
 class × race terms substituted (family 168); **PASS iff every term's rerun γ ∈ original 95% CI AND
 identical ClaimGate verdicts**; always report max/RMS |Δγ| in SE units + greedy exact-match rate.
-First step: a Kaggle feasibility check (cu130 needs driver ≥ 580); if it fails, lab-only, claim
-scoped down, NOTHING unpinned. **NEXT: hand-back + review → R2 build → E4 analysis → calibration +
-on-target labels → P12.**
+Kaggle feasibility CHECKED 16 Oct: Kaggle's T4 runs driver 580.178.04 / CUDA 13.0 (same as the lab),
+so the locked stack should run; sm_75 support confirmed only by the first real session.
+
+**E4 + R2 + LABELLING BUILT 16 Oct 2026** (E4 estimands asked + logged in pre-reg §10 first:
+each arm — incl. T=0.7 = E1's class × race responses — standardized WITHIN itself; per-seed AND
+pooled fits, `seed_group` 0 = pooled; all nine free terms reported/drawn, no selection):
+- **`margins.sensitivity`** (pure): `fit_pair` = P7's OWN `EmergenceMetric` on one pair's grid (no
+  second estimator); `e4.sensitivity_rows`; `r2.{compare_to_original, substitute_series,
+  verdict_changes, exact_match_rate, summarize}`. `scoring.standardize.standardize_with_reference`
+  maps a rerun through the ORIGINAL constants.
+- **Self-consistency PROVEN on the real data:** feeding E1's own class × race responses through the
+  R2 path as the "rerun" gives 36/36 inside CI, **0.000 SE** difference, identical verdicts,
+  exact-match 1.000 — reference standardization + pair-only fit reproduce the reported numbers.
+- `configs/experiment/p11_v1.yaml` gained a validated **`r2` block** (`p11_v1@2026-10-16`), pinned
+  by `P11Config` to E1's decoding + seeds and the E4 greedy arm; R2 prompt ids == E1's (verified,
+  432/432, text identical), so every rerun response shares its `response_id` with its original.
+- `run_p11.py` gained **`r2 --model M --machine {kaggle,lab} [--no-prompt-build]`**,
+  **`r2-process --machine X`**, **`e4-process`**; scripts `run_e4_analysis.py`,
+  `run_r2_analysis.py`; result table **`reproducibility`** (+ fixture); **fig6 redrawn**: panels =
+  model × harm, x = the nine terms, three arms dodged, pooled CI + open seed points + grey headline
+  E1 reference.
+- **Kaggle notebook `notebooks/r2_kaggle.ipynb`, GENERATED** by `scripts/build_r2_notebook.py`
+  (`--check` in tests): clones the PRIVATE repo at tag **`r2-v1`** via a `GITHUB_TOKEN` Kaggle secret
+  (never printed, stripped from the remote), `uv sync --locked`, verify-gpu both models, builds
+  prompts ONCE, then one model per T4 in parallel, packs `r2_kaggle_outputs.tar.gz`.
+- **Labelling:** `scripts/label_sheets.py` export/import (BLIND sheets: text only; strict 0/1 import);
+  calibration samples drawn across BOTH models (200/harm type, `build_calibration_sample.py` now
+  takes several `--scores/--responses`); sheets in `data/labels/`; definitions in
+  **`docs/labelling_guide.md`**. Runbook section G (lab R2 + e4-process).
+**NEXT: e4-process (real) → user labels → lab + Kaggle R2 runs → r2-process → P12.**
 
 ### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
@@ -1043,6 +1070,11 @@ uv run python scripts/run_p11.py redteam-elicit
 uv run python scripts/run_p11.py redteam-prompts --max-frames <N from budget>
 uv run python scripts/run_p11.py redteam-audit --model llama31_8b_instruct
 uv run python scripts/run_p11.py process                  # scoring→…→figures; CPU is fine
+uv run python scripts/run_p11.py e4-process               # E4: score arms, fit, fig6 (CPU)
+uv run python scripts/run_p11.py r2 --model llama31_8b_instruct --machine lab   # R2 rerun (GPU)
+uv run python scripts/run_p11.py r2-process --machine kaggle   # R2 pass rule (CPU)
+uv run python scripts/build_r2_notebook.py                 # regenerate notebooks/r2_kaggle.ipynb
+uv run python scripts/label_sheets.py export-calibration --harm-type toxicity   # -> data/labels/
 uv run --extra inference python scripts/run_p11.py smoke --model llama32_1b_instruct  # local, CPU
 
 # P10 figures + tables. Core env, no torch. Every drawn number is audited against a committed

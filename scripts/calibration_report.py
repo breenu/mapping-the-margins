@@ -33,14 +33,16 @@ from margins.scoring.export import DEFAULT_SCORING_DIR, SCORES_FILENAME, read_sc
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labels", type=Path, required=True, help="Hand-filled label JSONL.")
-    parser.add_argument("--scores", type=Path, default=DEFAULT_SCORING_DIR / SCORES_FILENAME)
+    parser.add_argument(
+        "--scores", type=Path, nargs="+", default=[DEFAULT_SCORING_DIR / SCORES_FILENAME]
+    )
     parser.add_argument("--scoring", default=DEFAULT_SCORING)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_SCORING_DIR)
     args = parser.parse_args(argv)
 
     config = load_scoring_config(args.scoring, config_dir=default_scoring_config_dir())
     labels = read_labels(args.labels)
-    scores = read_scores(args.scores)
+    scores = [row for path in args.scores for row in read_scores(path)]
 
     metrics = calibration_metrics(scores, labels, config)
 

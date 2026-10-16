@@ -11,6 +11,9 @@
     uv run python scripts/run_p11.py redteam-prompts --max-frames N      # descriptive subset
     uv run python scripts/run_p11.py redteam-audit --model llama31_8b_instruct
     uv run python scripts/run_p11.py process            # scoring -> ... -> figures (CPU ok)
+    uv run python scripts/run_p11.py e4-process         # E4 analysis -> figure 6 (CPU)
+    uv run python scripts/run_p11.py r2 --model llama31_8b_instruct --machine lab   # R2 rerun
+    uv run python scripts/run_p11.py r2-process --machine lab      # R2 pass rule (CPU)
 
 Every step accepts ``--dry-run``, which prints the exact ``uv run python scripts/...`` lines it
 would execute and runs nothing. Those lines are built in :mod:`margins.orchestrate.plan`, the one
@@ -632,6 +635,69 @@ def cmd_e4(cfg: P11Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_e4_process(cfg: P11Config, args: argparse.Namespace) -> int:
+    """E4's analysis (CPU): score the T=1.0 and greedy arms, fit every arm, draw figure 6."""
+    layout = plan.Layout(data=args.data_root, results=args.results_root, figures=args.figures_dir)
+    responses: dict[tuple[str, str], Path | str] = {
+        (f"e4_{arm.name}", model): newest_run_file(
+            layout.responses(f"e4_{arm.name}"), model, dry_run=args.dry_run
+        )
+        for arm in cfg.e4.arms
+        for model in cfg.e1.models
+    }
+    for command in plan.e4_process_commands(
+        cfg, responses=responses, layout=layout, n_resamples=args.n_resamples
+    ):
+        execute(command, dry_run=args.dry_run)
+    return 0
+
+
+def cmd_r2(cfg: P11Config, args: argparse.Namespace) -> int:
+    """R2, the reproducibility rerun, for one model on one declared machine (resumable)."""
+    if args.machine not in cfg.r2.machines:
+        raise StepFailedError(
+            f"STOP: machine {args.machine!r} is not declared for R2; one of {cfg.r2.machines}"
+        )
+    if not args.dry_run:
+        confirmatory_preflight(allow_dirty=args.allow_dirty)
+    greedy = cfg.r2_greedy
+    n = len(cfg.r2.sampled_seeds)
+    print(
+        f"R2 on {' x '.join(cfg.r2.pair)} ({args.machine}): {cfg.r2.sampled_decoding} x {n} "
+        f"seeds (vs E1) and {greedy.decoding} x {len(greedy.seeds)} seed (vs E4 greedy)."
+    )
+    if args.no_prompt_build:
+        # Two models generating in parallel (one per GPU, as the Kaggle notebook runs them) must
+        # not rewrite the same prompt files at the same moment: the notebook builds them once.
+        prompts = [cfg.r2.sampled_prompts_dir / "prompts_v1.jsonl", plan.Layout.e4_prompts(greedy)]
+        missing = [str(path) for path in prompts if not path.is_file() and not args.dry_run]
+        if missing:
+            raise StepFailedError(f"STOP: --no-prompt-build but {', '.join(missing)} missing")
+    else:
+        for command in plan.r2_prompt_builds(cfg):
+            execute(command, dry_run=args.dry_run)
+    for command in plan.r2_inference(cfg, args.model, args.machine):
+        execute(command, dry_run=args.dry_run)
+    return 0
+
+
+def cmd_r2_process(cfg: P11Config, args: argparse.Namespace) -> int:
+    """R2's analysis (CPU) for one machine: score the sampled rerun, apply the pass rule."""
+    if args.machine not in cfg.r2.machines:
+        raise StepFailedError(f"STOP: machine {args.machine!r} is not declared for R2")
+    layout = plan.Layout(data=args.data_root, results=args.results_root)
+    sampled = plan.r2_arm_dir(args.machine, "sampled")
+    responses: dict[str, Path | str] = {
+        model: newest_run_file(layout.responses(sampled), model, dry_run=args.dry_run)
+        for model in cfg.e1.models
+    }
+    for command in plan.r2_process_commands(
+        cfg, args.machine, responses=responses, layout=layout, n_resamples=args.n_resamples
+    ):
+        execute(command, dry_run=args.dry_run)
+    return 0
+
+
 def cmd_crows(cfg: P11Config, args: argparse.Namespace) -> int:
     if not args.dry_run:
         confirmatory_preflight(allow_dirty=args.allow_dirty)
@@ -740,6 +806,28 @@ def build_parser() -> argparse.ArgumentParser:
             "--allow-dirty", action="store_true", help="Debugging only. Never for a real run."
         )
 
+    e4p = add("e4-process", "E4 analysis (CPU): score the E4 arms, fit, write figure 6.")
+    e4p.add_argument("--data-root", type=Path, default=Path("data"))
+    e4p.add_argument("--results-root", type=Path, default=Path("results"))
+    e4p.add_argument("--figures-dir", type=Path, default=Path("figures"))
+    e4p.add_argument("--n-resamples", type=int, default=None, help="Smoke runs only.")
+
+    r2 = add("r2", "R2: the reproducibility rerun of the E4 subset on one machine (resumable).")
+    r2.add_argument("--model", required=True)
+    r2.add_argument("--machine", required=True, help="A machine declared in the config's r2 block.")
+    r2.add_argument("--allow-dirty", action="store_true", help="Debugging only. Never for R2.")
+    r2.add_argument(
+        "--no-prompt-build",
+        action="store_true",
+        help="Use prompt files already built (parallel per-GPU runs build them once, first).",
+    )
+
+    r2p = add("r2-process", "R2 analysis (CPU): score one machine's rerun, apply the pass rule.")
+    r2p.add_argument("--machine", required=True)
+    r2p.add_argument("--data-root", type=Path, default=Path("data"))
+    r2p.add_argument("--results-root", type=Path, default=Path("results"))
+    r2p.add_argument("--n-resamples", type=int, default=None, help="Smoke runs only.")
+
     elicit = add("redteam-elicit", "Red LM elicitation, then screen its frames (resumable).")
     elicit.add_argument("--allow-dirty", action="store_true", help="Debugging only.")
 
@@ -766,6 +854,9 @@ HANDLERS = {
     "redteam-elicit": cmd_redteam_elicit,
     "redteam-prompts": cmd_redteam_prompts,
     "redteam-audit": cmd_redteam_audit,
+    "e4-process": cmd_e4_process,
+    "r2": cmd_r2,
+    "r2-process": cmd_r2_process,
     "process": cmd_process,
 }
 

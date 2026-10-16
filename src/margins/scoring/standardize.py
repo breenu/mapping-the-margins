@@ -46,6 +46,7 @@ __all__ = [
     "SignContractError",
     "StandardizationReport",
     "signs_from_specs",
+    "standardize_with_reference",
     "standardize_within_benchmark",
     "verify_paired_sign",
     "verify_sign",
@@ -167,6 +168,45 @@ def standardize_within_benchmark(
         for score, value in zip(scores, standardized, strict=True)
     ]
     return out, reports
+
+
+def standardize_with_reference(
+    scores: Sequence[ItemScore],
+    *,
+    benchmark: str,
+    reference: Sequence[StandardizationReport],
+) -> list[ItemScore]:
+    """Standardize ``raw`` with ANOTHER run's constants -- the R2 rerun's rule.
+
+    R2 (pre-registration §10, 16 Oct 2026) asks whether an independent regeneration reproduces
+    the REPORTED estimates. Z-scoring the rerun on its own mean and SD would put it on a different
+    scale from the numbers it is compared against, so its raw scores are mapped through the
+    original run's ``(raw_mean, raw_sd, sign)`` per group instead. Rule 1 still holds: the
+    reference must come from the same benchmark, and every group must be covered.
+
+    Raises:
+        ValueError: on a row from another benchmark, or a group with no reference constants.
+    """
+    foreign = sorted({s.benchmark for s in scores if s.benchmark != benchmark})
+    foreign += sorted({r.benchmark for r in reference if r.benchmark != benchmark})
+    if foreign:
+        raise ValueError(
+            f"standardize_with_reference({benchmark!r}) was given rows or constants from "
+            f"{sorted(set(foreign))}; standardization is WITHIN a source, never across."
+        )
+    constants = {(r.benchmark, r.scorer_id, r.harm_type, r.condition): r for r in reference}
+    uncovered = sorted({_group_key(s) for s in scores if _group_key(s) not in constants})
+    if uncovered:
+        raise ValueError(f"no reference constants for group(s) {uncovered}")
+
+    out: list[ItemScore] = []
+    for score in scores:
+        ref = constants[_group_key(score)]
+        # A reference group that was degenerate standardized every row to 0.0; mapping the rerun
+        # through it does the same, rather than dividing by a zero SD.
+        value = 0.0 if ref.degenerate else ref.sign * (score.raw - ref.raw_mean) / ref.raw_sd
+        out.append(score.model_copy(update={"standardized": float(value)}))
+    return out
 
 
 def verify_sign(spec: ScorerSpec, text_scorer: TextScorer) -> None:

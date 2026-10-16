@@ -518,6 +518,27 @@ def _every_planned_command(cfg) -> list[plan.Command]:  # type: ignore[no-untype
         *plan.smoke_stage_commands(cfg, "metrics", smoke),
         *plan.smoke_stage_commands(cfg, "stats", smoke),
         *plan.smoke_stage_commands(cfg, "tables", smoke),
+        *plan.r2_prompt_builds(cfg),
+        *(
+            c
+            for m in cfg.e1.models
+            for machine in cfg.r2.machines
+            for c in plan.r2_inference(cfg, m, machine)
+        ),
+        *plan.e4_process_commands(
+            cfg,
+            responses={
+                (f"e4_{arm.name}", m): "x.jsonl" for arm in cfg.e4.arms for m in cfg.e1.models
+            },
+            n_resamples=50,
+        ),
+        *(
+            c
+            for machine in cfg.r2.machines
+            for c in plan.r2_process_commands(
+                cfg, machine, responses=dict.fromkeys(cfg.e1.models, "x.jsonl"), n_resamples=50
+            )
+        ),
     ]
     return commands
 

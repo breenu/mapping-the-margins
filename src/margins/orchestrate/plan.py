@@ -37,9 +37,14 @@ __all__ = [
     "crows_inference",
     "e1_inference",
     "e4_inference",
+    "e4_process_commands",
     "e4_prompt_build",
     "prepare_commands",
     "process_commands",
+    "r2_arm_dir",
+    "r2_inference",
+    "r2_process_commands",
+    "r2_prompt_builds",
     "redteam_audit_inference",
     "redteam_audit_prompts",
     "redteam_elicitation_commands",
@@ -258,6 +263,100 @@ def e4_inference(cfg: P11Config, model: str, layout: Layout = DEFAULT_LAYOUT) ->
     ]
 
 
+def r2_arm_dir(machine: str, arm: str) -> str:
+    """``r2_<machine>_<arm>``: one response/scoring directory per (machine, arm), never shared.
+
+    Kept apart from every original arm so a rerun can never resume -- or be mistaken for -- the
+    run it is meant to reproduce.
+    """
+    return f"r2_{machine}_{arm}"
+
+
+def r2_prompt_builds(cfg: P11Config) -> list[Command]:
+    """R2's two prompt files. Deterministic and cheap, so the ``r2`` step builds them itself.
+
+    The sampled file is the E4 grid stamped with E1's profile: the same text AND the same stamp as
+    E1's rows, so the same ``prompt_id``s. The greedy file is the E4 greedy arm's own.
+    """
+    sampled = Command(
+        "build_prompts",
+        (
+            "--prompt-set",
+            cfg.e1.prompt_set,
+            "--decoding",
+            cfg.r2.sampled_decoding,
+            "--pair",
+            *cfg.r2.pair,
+            "--out-dir",
+            _p(cfg.r2.sampled_prompts_dir),
+            "--run-name",
+            "build-prompts-r2-sampled",
+        ),
+    )
+    return [sampled, e4_prompt_build(cfg, cfg.r2_greedy)]
+
+
+def r2_inference(
+    cfg: P11Config, model: str, machine: str, layout: Layout = DEFAULT_LAYOUT
+) -> list[Command]:
+    """R2 for one model on one machine: the sampled rerun, then the greedy rerun. Resumable."""
+    if machine not in cfg.r2.machines:
+        raise ValueError(f"R2 machine {machine!r} is not declared; one of {cfg.r2.machines}")
+    greedy = cfg.r2_greedy
+    return [
+        _inference(
+            model=model,
+            prompts=cfg.r2.sampled_prompts_dir / "prompts_v1.jsonl",
+            decoding=cfg.r2.sampled_decoding,
+            seeds=cfg.r2.sampled_seeds,
+            batch_size=cfg.e1.batch_size,
+            out_dir=layout.responses(r2_arm_dir(machine, "sampled")),
+            run_name=f"r2-{machine}-sampled-{model}",
+        ),
+        _inference(
+            model=model,
+            prompts=layout.e4_prompts(greedy),
+            decoding=greedy.decoding,
+            seeds=greedy.seeds,
+            batch_size=cfg.e1.batch_size,
+            out_dir=layout.responses(r2_arm_dir(machine, "greedy")),
+            run_name=f"r2-{machine}-greedy-{model}",
+        ),
+    ]
+
+
+def r2_process_commands(
+    cfg: P11Config,
+    machine: str,
+    *,
+    responses: dict[str, Path | str],
+    layout: Layout = DEFAULT_LAYOUT,
+    n_resamples: int | None = None,
+) -> list[Command]:
+    """R2's CPU half for one machine: score each model's sampled rerun, then the R2 analysis.
+
+    Only the SAMPLED rerun is scored -- the pass rule is about its estimates; the greedy rerun is
+    compared as text (exact-match rate) and needs no scorer.
+    """
+    sampled = r2_arm_dir(machine, "sampled")
+    commands = [
+        _scoring(
+            responses=responses[model],
+            prompts=cfg.r2.sampled_prompts_dir / "prompts_v1.jsonl",
+            benchmark=OPEN_GEN_BENCHMARK,
+            out_dir=layout.scoring(sampled, model),
+            run_name=f"scoring-{sampled}-{model}",
+        )
+        for model in cfg.e1.models
+    ]
+    analysis = ["--machine", machine, "--data-root", _p(layout.data)]
+    analysis += ["--out-dir", _p(layout.tables), "--paper-numbers", _p(layout.paper_numbers)]
+    if n_resamples is not None:
+        analysis += ["--n-resamples", str(n_resamples)]
+    commands.append(Command("run_r2_analysis", tuple(analysis)))
+    return commands
+
+
 def crows_inference(cfg: P11Config, model: str, layout: Layout = DEFAULT_LAYOUT) -> Command:
     """The CrowS-Pairs log-probability pass for one model. Deterministic: one seed suffices."""
     return _inference(
@@ -372,6 +471,53 @@ def _metrics(
     if results_dir is not None:
         argv += ["--results-dir", _p(results_dir)]
     return Command("run_metrics", tuple(argv))
+
+
+def e4_process_commands(
+    cfg: P11Config,
+    *,
+    responses: dict[tuple[str, str], Path | str],
+    layout: Layout = DEFAULT_LAYOUT,
+    n_resamples: int | None = None,
+) -> list[Command]:
+    """E4's CPU half: score each generated arm per model, then the E4 analysis, then figures.
+
+    ``process`` never touches the E4 folders (a test pins that); this is their own path. Each arm
+    is scored in its OWN call, so ``run_scoring.py`` standardizes it within itself -- the 23 Sep
+    2026 rule. The T=0.7 arm is E1's scores, already written by ``process``.
+    """
+    commands: list[Command] = []
+    for arm in cfg.e4.arms:
+        for model in cfg.e1.models:
+            name = f"e4_{arm.name}"
+            commands.append(
+                _scoring(
+                    responses=responses[(name, model)],
+                    prompts=layout.e4_prompts(arm),
+                    benchmark=OPEN_GEN_BENCHMARK,
+                    out_dir=layout.scoring(name, model),
+                    run_name=f"scoring-{name}-{model}",
+                )
+            )
+    analysis = ["--data-root", _p(layout.data), "--out-dir", _p(layout.tables)]
+    analysis += ["--paper-numbers", _p(layout.paper_numbers)]
+    if n_resamples is not None:
+        analysis += ["--n-resamples", str(n_resamples)]
+    commands.append(Command("run_e4_analysis", tuple(analysis)))
+    commands.append(
+        Command(
+            "make_figures",
+            (
+                "--table-dir",
+                _p(layout.tables),
+                "--paper-numbers",
+                _p(layout.paper_numbers),
+                "--out-dir",
+                _p(layout.figures),
+            ),
+        )
+    )
+    return commands
 
 
 def process_commands(

@@ -508,6 +508,71 @@ The project lead commits them. **Do not commit or push from the lab machine.**
 
 ---
 
+## G. R2: the reproducibility rerun on the lab GPU (after the main run)
+
+R2 regenerates the E4 subset (class × race, 432 prompts) through both models, **using the same
+settings and seeds as the original run**, and checks that the reported numbers come back. It was
+pre-registered on 16 Oct 2026 (`docs/preregistration.md` §10). It runs twice:
+
+- on **Kaggle's free tier**, the main evidence, from the notebook `notebooks/r2_kaggle.ipynb`
+  (its first cell says how);
+- **here, on the lab GPU the original run used**, as the same-hardware reference. That's this section.
+
+It is about **2,160 generations per model**, roughly 1–1.5 hours each on the A4000.
+
+### G1. Get the R2 code
+
+R2 runs from the tag `r2-v1`, the same code the Kaggle notebook uses:
+
+```bash
+cd ~/mapping-the-margins
+git fetch --tags
+git checkout r2-v1
+git log -1 --oneline
+uv sync --locked --extra dev --extra inference
+```
+
+`git checkout r2-v1` says you are in "detached HEAD" state. That is expected.
+
+### G2. Run it, in `tmux`, one model after the other
+
+```bash
+uv run python scripts/run_p11.py r2 --model llama31_8b_instruct --machine lab
+uv run python scripts/run_p11.py r2 --model mistral7b_instruct_v03 --machine lab
+```
+
+Each builds R2's two prompt files, then generates the sampled rerun (4 seeds) and the greedy rerun
+(1 seed) into `data/responses/r2_lab_sampled/` and `data/responses/r2_lab_greedy/`. It is resumable
+exactly like E1: after an interruption, re-run the identical command.
+
+### G3. Hand back
+
+```bash
+tar czf ~/r2_lab_outputs.tar.gz data/responses/r2_lab_sampled data/responses/r2_lab_greedy results/run_manifests
+```
+
+Send `r2_lab_outputs.tar.gz` back the same way as the main outputs. The analysis needs no GPU:
+
+```bash
+uv run python scripts/run_p11.py r2-process --machine lab
+uv run python scripts/run_p11.py r2-process --machine kaggle
+```
+
+Each prints `R2 <machine>: PASS` or `FAIL` against the pre-registered rule, and both outcomes are
+reported. Do **not** re-run R2 because a result is inconvenient: a second attempt chosen after
+seeing the first is not a reproducibility test.
+
+### G4. E4's analysis (also no GPU)
+
+```bash
+uv run python scripts/run_p11.py e4-process
+```
+
+This scores the two E4 arms that were generated in the main run, fits every arm per seed and pooled,
+and draws figure 6.
+
+---
+
 ## F. If something goes wrong
 
 **The standing rule: never unpin a dependency, never `pip install`, never substitute a different
@@ -661,6 +726,16 @@ Processing (section E). CPU is fine:
 
 ```bash
 uv run python scripts/run_p11.py process
+uv run python scripts/run_p11.py e4-process
+```
+
+R2, the reproducibility rerun (section G):
+
+```bash
+uv run python scripts/run_p11.py r2 --model llama31_8b_instruct --machine lab
+uv run python scripts/run_p11.py r2 --model mistral7b_instruct_v03 --machine lab
+uv run python scripts/run_p11.py r2-process --machine lab
+uv run python scripts/run_p11.py r2-process --machine kaggle
 ```
 
 What `prepare` runs underneath:

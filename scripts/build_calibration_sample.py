@@ -36,9 +36,15 @@ DEFAULT_PROMPTS = Path("data") / "prompts" / PROMPTS_FILENAME
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harm-type", required=True, help="One harm type per sample.")
-    parser.add_argument("--scores", type=Path, default=DEFAULT_SCORING_DIR / SCORES_FILENAME)
     parser.add_argument(
-        "--responses", type=Path, required=True, help="Response JSONL for the text."
+        "--scores",
+        type=Path,
+        nargs="+",
+        default=[DEFAULT_SCORING_DIR / SCORES_FILENAME],
+        help="One or more scores.parquet; several draw ONE sample across them (e.g. both models).",
+    )
+    parser.add_argument(
+        "--responses", type=Path, nargs="+", required=True, help="Response JSONL(s) for the text."
     )
     parser.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS)
     parser.add_argument("--scoring", default=DEFAULT_SCORING)
@@ -50,8 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.harm_type not in config.harm_types:
         parser.error(f"{args.harm_type!r} is not in roster {config.key!r}: {config.harm_types}")
 
-    scores = read_scores(args.scores)
-    responses = read_responses(args.responses)
+    scores = [row for path in args.scores for row in read_scores(path)]
+    responses = [response for path in args.responses for response in read_responses(path)]
     texts = {r.response_id: r.text for r in responses}
 
     # cell_id -> order, resolved from the lattice rather than parsed out of the id string.
