@@ -153,6 +153,31 @@ def test_the_table_directory_falls_back_to_fixtures_until_a_real_run_exists() ->
     assert resolve_table_dir(None, real=FIXTURE_TABLES, fixture=DEFAULT_TABLE_DIR) == FIXTURE_TABLES
 
 
+def test_a_pending_real_table_falls_back_alone_and_stamps_only_its_figure() -> None:
+    """After P11, `sensitivity` (E4) is built later than the rest. One pending table must fall
+    back to its fixture -- marking that figure FIXTURE -- without demoting the real ones; and an
+    explicit --table-dir stays strict."""
+    from margins.report.source import NumberSource
+
+    if not (DEFAULT_TABLE_DIR / "emergence_effects.csv").is_file():
+        pytest.skip("no real result tables committed yet")
+    if (DEFAULT_TABLE_DIR / "sensitivity.csv").is_file():
+        pytest.skip("the sensitivity table is real now; nothing is pending")
+
+    real_only = NumberSource(paper_numbers_path=PAPER_NUMBERS)
+    real_only.table("emergence_effects")
+    assert real_only.data_status == "real"
+
+    mixed = NumberSource(paper_numbers_path=PAPER_NUMBERS)
+    mixed.table("emergence_effects")
+    assert mixed.table("sensitivity").data_status == "fixture"
+    assert mixed.data_status == "fixture"
+
+    strict = NumberSource(table_dir=DEFAULT_TABLE_DIR, paper_numbers_path=PAPER_NUMBERS)
+    with pytest.raises(FileNotFoundError):
+        strict.table("sensitivity")
+
+
 # ------------------------------------------------------------------ environment
 
 

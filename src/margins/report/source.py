@@ -92,6 +92,16 @@ class NumberSource:
         self._numbers = numbers if numbers is not None else read_paper_numbers(paper_numbers_path)
         self._paper_origin = paper_numbers_path.as_posix()
         self._table_dir = resolve_table_dir(table_dir)
+        # Per-TABLE fallback, only when the directory was resolved by default. A real run can
+        # produce most tables before all of them (E4's `sensitivity` is built after the lab
+        # run), and one pending table must not stop the figures whose tables are real. The
+        # fallback rows carry data_status="fixture", so `data_status` below turns that figure,
+        # and only that figure, into a banner-stamped FIXTURE. An explicit --table-dir is strict.
+        self._fallback_dir = (
+            DEFAULT_FIXTURE_DIR
+            if table_dir is None and self._table_dir != DEFAULT_FIXTURE_DIR
+            else None
+        )
         self._tables: dict[str, ResultTable] = {}
         self._ledger: list[Traced] = []
 
@@ -164,7 +174,12 @@ class NumberSource:
     def table(self, name: str) -> ResultTable:
         """Read a committed result table once and remember it."""
         if name not in self._tables:
-            self._tables[name] = read_table(name, directory=self._table_dir)
+            try:
+                self._tables[name] = read_table(name, directory=self._table_dir)
+            except FileNotFoundError:
+                if self._fallback_dir is None:
+                    raise
+                self._tables[name] = read_table(name, directory=self._fallback_dir)
         return self._tables[name]
 
     def floats(self, table: ResultTable, column: str) -> tuple[Traced, ...]:

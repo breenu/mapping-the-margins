@@ -110,8 +110,12 @@ def execute(command: plan.Command, *, dry_run: bool = False) -> None:
     if command.script in SUBPROCESS_SCRIPTS:
         # The same interpreter (the uv venv) and the same environment, so HF_TOKEN/HF_HOME carry
         # over; the working directory is inherited, so the relative paths in argv resolve alike.
+        # Unbuffered, because a child writing into a pipe (`| tee run.log`, as the lab ran it)
+        # otherwise holds its progress back in a block buffer and the terminal looks frozen.
         script = SCRIPTS_DIR / f"{command.script}.py"
-        code = subprocess.run([sys.executable, str(script), *command.argv], check=False).returncode
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        argv = [sys.executable, str(script), *command.argv]
+        code = subprocess.run(argv, check=False, env=env).returncode
     else:
         try:
             code = _load_script(command.script).main(list(command.argv))

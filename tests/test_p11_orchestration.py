@@ -19,11 +19,11 @@ Core environment only: no torch, no model, no network.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
 import shlex
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -252,16 +252,25 @@ def test_one_rendering_per_cell_is_a_fail_not_a_vacuous_pass(tmp_path: Path) -> 
     assert "NOTHING TO CORRECT" in checks["FDR correction reached"]["detail"]
 
 
+def _tree_digests(directory: Path) -> dict[str, str]:
+    if not directory.is_dir():
+        return {}
+    return {
+        path.relative_to(directory).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(directory.rglob("*"))
+        if path.is_file()
+    }
+
+
 def test_the_smoke_run_leaves_the_committed_results_untouched(tmp_path: Path) -> None:
     watched = [REPO / "results" / "paper_numbers.json", *(REPO / "figures").glob("*.svg")]
     before = {path: path.read_bytes() for path in watched}
     manifests = set((REPO / "results" / "run_manifests").glob("*.json"))
+    tables = _tree_digests(REPO / "results" / "tables")  # the REAL tables, since P11
     _smoke_from_metrics(tmp_path, n_items=3, seeds=(1, 2))
     assert {path: path.read_bytes() for path in watched} == before
     assert set((REPO / "results" / "run_manifests").glob("*.json")) == manifests
-    assert not (REPO / "results" / "tables").exists() or not any(
-        (REPO / "results" / "tables").iterdir()
-    )
+    assert _tree_digests(REPO / "results" / "tables") == tables
 
 
 def test_gpu_steps_run_in_their_own_process(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -276,8 +285,9 @@ def test_gpu_steps_run_in_their_own_process(monkeypatch: pytest.MonkeyPatch) -> 
     class Done:
         returncode = 0
 
-    def fake_run(argv: list[str], check: bool) -> Done:
+    def fake_run(argv: list[str], check: bool, env: dict[str, str]) -> Done:
         calls.append(argv)
+        assert env["PYTHONUNBUFFERED"] == "1", "a piped child would hide its progress"
         return Done()
 
     in_process: list[str] = []
@@ -317,7 +327,7 @@ def test_a_failed_gpu_subprocess_stops_the_run(monkeypatch: pytest.MonkeyPatch) 
     class Failed:
         returncode = 1
 
-    monkeypatch.setattr(run_p11.subprocess, "run", lambda argv, check: Failed())
+    monkeypatch.setattr(run_p11.subprocess, "run", lambda argv, check, env: Failed())
     with pytest.raises(run_p11.StepFailedError, match="exited 1"):
         run_p11.execute(plan.Command("run_inference", ("--model", DEV_MODEL)))
 
@@ -356,8 +366,15 @@ def test_processing_two_models_corrects_one_family_and_keeps_redteam_descriptive
             )
         write_crows(layout.scoring("crows", name), lattice, model_id=model_id, seed=index)
     layout.results.mkdir(parents=True)
-    # fig3 draws the MEASURED field result from the committed paper numbers.
-    shutil.copy(REPO / "results" / "paper_numbers.json", layout.paper_numbers)
+    # fig3 draws the MEASURED field result from the committed paper numbers. Only the entries
+    # this synthetic run does not itself produce are carried over: since the real P11 run, the
+    # committed file also holds run_stats.py's numbers (family_size 168, ...), and the merge
+    # guard rightly refuses to overwrite a published number with this test's 36.
+    committed = json.loads((REPO / "results" / "paper_numbers.json").read_text(encoding="utf-8"))
+    committed["numbers"] = [
+        entry for entry in committed["numbers"] if entry["source"] != "scripts/run_stats.py"
+    ]
+    layout.paper_numbers.write_text(json.dumps(committed, indent=2), encoding="utf-8")
 
     code = _script("run_p11").main(
         [

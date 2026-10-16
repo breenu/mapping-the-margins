@@ -152,6 +152,26 @@ Detach with `Ctrl-b` then `d`. Re-attach later with `tmux attach -t p11`. If `tm
 installed, prefix a command with `nohup` and end it with `> run.log 2>&1 &`, then watch it with
 `tail -f run.log`.
 
+### On a shared lab desktop (lessons from the first lab run, 12–15 Oct 2026)
+
+- **Check that logging out does not kill your jobs** before the first long run. Turn on lingering
+  (`loginctl enable-linger $USER`; ask the administrator if it is refused), start a dummy job in
+  tmux, log out for a few minutes, and check it kept running when you return.
+- **Stop the machine sleeping while a run is going.** In a second tmux window, run this and leave it
+  running. Without the `handle-power-key` part it blocks only automatic sleep, not the power button:
+
+  ```bash
+  systemd-inhibit --what=sleep:idle:handle-power-key:handle-suspend-key --who=$USER --why="GPU experiment running" sleep infinity
+  ```
+
+- **Put a note on the monitor.** On the first run, other users switched the machine off twice.
+  Nothing was lost, because every step resumes (section C3), but a reboot also ends the tmux
+  session, so after one, start a new session and re-run the same command.
+- **Keep a copy of `data/responses/` off the machine** once generation finishes (section E2's
+  `tar` command), in case home directories are wiped.
+- Saving a log with `... 2>&1 | tee -a ~/p11_run.log` is safe: the generation and scoring steps
+  run unbuffered, so their progress still shows up in the terminal as it happens.
+
 ---
 
 ## B. The smoke run: must PASS before anything else
@@ -418,7 +438,7 @@ laptop afterwards.
 | Stage | GPU? | Notes |
 |---|---|---|
 | Generation (sections B–D) | **Yes** | The only GPU step |
-| Scoring | No (faster with one) | Two small classifiers score each response. Needs `--extra inference`, including on a laptop. Can take hours on a laptop CPU for ~24,000 responses |
+| Scoring | No: it runs on the **CPU even on the GPU machine** | Two small classifiers score each response. They are deliberately never moved to the GPU, so the scores do not depend on which card produced them. Needs `--extra inference`, including on a laptop. Measured on the first lab run: ~1.5 h on a 32-thread desktop for ~40,000 responses plus the control texts; expect several hours on a laptop |
 | Metrics, statistics, tables, figures | No | Core environment only |
 
 ### E1. On the lab machine
