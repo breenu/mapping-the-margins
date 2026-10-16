@@ -10,8 +10,8 @@ import json
 from pathlib import Path
 
 import pytest
-
 import scripts.label_sheets as sheets
+
 from margins.redteam.on_target import OnTargetLabel
 from margins.scoring.calibration import HumanLabel
 
