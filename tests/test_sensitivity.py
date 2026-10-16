@@ -350,3 +350,17 @@ def test_effect_estimates_carry_no_significance_from_e4_or_r2(cells, signs, metr
     assert effects and all(
         e.q is None and e.family_size is None and e.correction is None for e in effects
     )
+
+
+def test_e4_process_lets_make_figures_fall_back_on_the_default_layout() -> None:
+    """Found running it for real: an explicit --table-dir is strict, so the still-pending
+    frame_breakdown table stopped the figure build after E4's table had been written."""
+    from margins.orchestrate import plan
+
+    cfg = load_p11_config()
+    responses = {(f"e4_{a.name}", m): "x.jsonl" for a in cfg.e4.arms for m in cfg.e1.models}
+    default = plan.e4_process_commands(cfg, responses=responses)[-1]
+    assert default.script == "make_figures" and "--table-dir" not in default.argv
+    elsewhere = plan.Layout(results=Path("elsewhere"))
+    moved = plan.e4_process_commands(cfg, responses=responses, layout=elsewhere)[-1]
+    assert "--table-dir" in moved.argv

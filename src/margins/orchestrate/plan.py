@@ -504,19 +504,14 @@ def e4_process_commands(
     if n_resamples is not None:
         analysis += ["--n-resamples", str(n_resamples)]
     commands.append(Command("run_e4_analysis", tuple(analysis)))
-    commands.append(
-        Command(
-            "make_figures",
-            (
-                "--table-dir",
-                _p(layout.tables),
-                "--paper-numbers",
-                _p(layout.paper_numbers),
-                "--out-dir",
-                _p(layout.figures),
-            ),
-        )
-    )
+    # On the repository's own layout, let make_figures RESOLVE the tables: an explicit --table-dir
+    # is strict, so a table still pending after E4 (frame_breakdown) would stop the whole build,
+    # where the default resolution falls back for that one figure and stamps it FIXTURE.
+    figures: list[str] = []
+    if layout.tables != DEFAULT_LAYOUT.tables:
+        figures += ["--table-dir", _p(layout.tables)]
+    figures += ["--paper-numbers", _p(layout.paper_numbers), "--out-dir", _p(layout.figures)]
+    commands.append(Command("make_figures", tuple(figures)))
     return commands
 
 
