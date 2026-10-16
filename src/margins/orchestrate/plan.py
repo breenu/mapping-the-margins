@@ -36,6 +36,7 @@ __all__ = [
     "SmokeLayout",
     "crows_inference",
     "e1_inference",
+    "e1_prompt_build",
     "e4_inference",
     "e4_process_commands",
     "e4_prompt_build",
@@ -153,21 +154,26 @@ def prepare_commands(cfg: P11Config, layout: Layout = DEFAULT_LAYOUT) -> list[Co
         Command("fetch_crows_pairs", ("--fetch-pinned",)),
         Command("build_crows_items", ("--no-manifest", "--no-paper-numbers")),
         Command("build_crows_prompts", ("--no-manifest",)),
-        Command(
-            "build_prompts",
-            (
-                "--prompt-set",
-                cfg.e1.prompt_set,
-                "--decoding",
-                cfg.e1.decoding,
-                "--out-dir",
-                _p(cfg.e1.prompts_dir),
-                "--run-name",
-                "build-prompts-e1-sampled",
-            ),
-        ),
+        e1_prompt_build(cfg),
         *(e4_prompt_build(cfg, arm) for arm in cfg.e4.arms),
     ]
+
+
+def e1_prompt_build(cfg: P11Config) -> Command:
+    """The E1 sampled prompt set. ``verify-gpu`` times a batch of THESE, so it needs them first."""
+    return Command(
+        "build_prompts",
+        (
+            "--prompt-set",
+            cfg.e1.prompt_set,
+            "--decoding",
+            cfg.e1.decoding,
+            "--out-dir",
+            _p(cfg.e1.prompts_dir),
+            "--run-name",
+            "build-prompts-e1-sampled",
+        ),
+    )
 
 
 def e4_prompt_build(

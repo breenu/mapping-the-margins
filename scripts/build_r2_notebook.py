@@ -27,8 +27,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from margins.orchestrate.config import load_p11_config
-from margins.orchestrate.plan import r2_arm_dir, r2_prompt_builds
+from margins.orchestrate.config import P11Config, load_p11_config
+from margins.orchestrate.plan import Command, e1_prompt_build, r2_arm_dir, r2_prompt_builds
 
 NOTEBOOK = Path("notebooks/r2_kaggle.ipynb")
 #: The ref the notebook checks out. A TAG, created on the commit that carries this notebook (a
@@ -136,7 +136,9 @@ for model in MODELS:
 """
 
 PROMPTS = """\
-# R2's prompt files, built ONCE here: the two parallel runs below must not both rewrite them.
+# The prompt files, built ONCE and BEFORE the GPU check: `verify-gpu` times a batch of E1 prompts
+# (a fresh clone has none -- the first Kaggle run stopped exactly there), and the two parallel R2
+# runs below must not both rewrite R2's files.
 for command in {commands!r}:
     sh(command, cwd=WORK)
 """
@@ -200,11 +202,16 @@ def _cell(cell_type: str, source: str) -> dict[str, Any]:
     return cell
 
 
+def _prompt_builds(cfg: P11Config) -> list[Command]:
+    """E1's set (``verify-gpu`` times a batch of it), then R2's two files."""
+    return [e1_prompt_build(cfg), *r2_prompt_builds(cfg)]
+
+
 def notebook_commands() -> list[str]:
     """Every shell command the notebook runs through the repository's scripts, as rendered."""
     cfg = load_p11_config()
-    commands = [f"uv run python scripts/run_p11.py verify-gpu --model {m}" for m in cfg.e1.models]
-    commands += [command.render() for command in r2_prompt_builds(cfg)]
+    commands = [command.render() for command in _prompt_builds(cfg)]
+    commands += [f"uv run python scripts/run_p11.py verify-gpu --model {m}" for m in cfg.e1.models]
     commands += [
         f"uv run python scripts/run_p11.py r2 --model {m} --machine {MACHINE} --no-prompt-build"
         for m in cfg.e1.models
@@ -220,8 +227,8 @@ def render_notebook() -> str:
         _cell("markdown", README.format(ref=R2_REF)),
         _cell("code", SETUP.format(repo=REPO, ref=R2_REF, models=list(cfg.e1.models))),
         _cell("code", ENVIRONMENT),
+        _cell("code", PROMPTS.format(commands=[c.render() for c in _prompt_builds(cfg)])),
         _cell("code", VERIFY),
-        _cell("code", PROMPTS.format(commands=[c.render() for c in r2_prompt_builds(cfg)])),
         _cell("code", GENERATE.format(machine=MACHINE)),
         _cell("code", PACK.format(sampled=sampled, greedy=greedy)),
     ]

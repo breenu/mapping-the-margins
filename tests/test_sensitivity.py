@@ -370,3 +370,18 @@ def test_e4_process_lets_make_figures_fall_back_on_the_default_layout() -> None:
     elsewhere = plan.Layout(results=Path("elsewhere"))
     moved = plan.e4_process_commands(cfg, responses=responses, layout=elsewhere)[-1]
     assert "--table-dir" in moved.argv
+
+
+def test_the_notebook_builds_the_e1_prompts_before_the_gpu_check() -> None:
+    """Found on the first real Kaggle run: verify-gpu times a batch of E1 prompts, which a fresh
+    clone does not have, so it stopped before loading a model."""
+    import scripts.build_r2_notebook as builder
+
+    commands = builder.notebook_commands()
+    build = next(i for i, c in enumerate(commands) if "build-prompts-e1-sampled" in c)
+    verify = next(i for i, c in enumerate(commands) if "verify-gpu" in c)
+    assert build < verify
+    cells = ["".join(c["source"]) for c in json.loads(builder.render_notebook())["cells"]]
+    prompts = next(i for i, c in enumerate(cells) if "build-prompts-e1-sampled" in c)
+    gpu = next(i for i, c in enumerate(cells) if "run_p11.py verify-gpu" in c)
+    assert prompts < gpu
