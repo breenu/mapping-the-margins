@@ -55,6 +55,26 @@ orchestration as built". **1017 tests**, all four gates green. **NEXT: the lab r
 decisions below are now built in: the smoke run is `run_p11.py smoke` and MUST PASS first, and the
 red-team arm is a descriptive `--max-frames` subset.
 
+**P11 LAB RUN ✅ GENERATION + `process` DONE 12–15 Oct 2026** on an **RTX A4000 16 GB** (driver 580,
+torch 2.14+cu130, bitsandbytes 0.50.2), a shared teaching-lab desktop. Smoke PASS; then **46,416
+responses**: E1 11,880 × 2, CrowS 1,352 × 2, E4 t1.0 1,296 × 2 + greedy 432 × 2, red-team elicit
+1,440 (→ 6,358 frames, 51 used = 8,160 audit prompts) + audit 8,160 × 2. Measured ~2.8–4 s/gen at
+batch 8 (≈1,000–1,300/h), ~40 GPU-h total. Two student shutdowns, both resumed with no loss.
+`process` wrote real `results/tables/` + 5 `[REAL]` figures, audits clean. **NOT YET HANDED BACK /
+COMMITTED / REVIEWED.** Three lab-found fixes, all pushed before E1 (manifests record `2d52acf`):
+`bitsandbytes` 0.47→0.50.2 (no cu130 binary), `protobuf` added (Mistral tokenizer), GPU scripts run
+as a **subprocess** in `run_p11` (in-process NF4 loads were never freed → smoke OOM at 3 × 4.8 GB).
+Runbook errata to fix: scoring runs on **CPU** (the classifier is never moved to CUDA — kept, as it
+makes scores machine-independent), and `| tee` block-buffers the child's output.
+**R2 DECIDED 16 Oct 2026 (pre-reg §10, before any R2 data):** class × race, both models,
+`sampled_v1` × E1's 4 seeds (vs E1) + `greedy_v1` × 1 (vs E4 greedy); Kaggle T4 primary, lab A4000
+same-hardware reference; rerun standardized with the ORIGINAL run's constants; P9 re-run with the
+class × race terms substituted (family 168); **PASS iff every term's rerun γ ∈ original 95% CI AND
+identical ClaimGate verdicts**; always report max/RMS |Δγ| in SE units + greedy exact-match rate.
+First step: a Kaggle feasibility check (cu130 needs driver ≥ 580); if it fails, lab-only, claim
+scoped down, NOTHING unpinned. **NEXT: hand-back + review → R2 build → E4 analysis → calibration +
+on-target labels → P12.**
+
 ### 📌 DECIDED 21 Sep 2026 — two things that bind BEFORE the P11 full run
 
 1. **A deliberate end-to-end smoke run on MULTI-RENDERING data, exercising the P9 correction
