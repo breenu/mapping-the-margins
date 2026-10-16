@@ -48,7 +48,7 @@ the repository's own pipeline at the pinned tag `{ref}`; nothing is measured her
 1. *Settings -> Accelerator -> GPU T4 x2*, and *Internet -> On* (needs a phone-verified account).
 2. *Add-ons -> Secrets*: attach **`HF_TOKEN`** (read; the account must have accepted the Llama 3.1
    licence) and **`GITHUB_TOKEN`** (a fine-grained, **read-only** token for
-   `breenu/mapping-the-margins`). The token is never printed and is removed from the clone's remote.
+   `breenu/mapping-the-margins`). The token never appears in a command or an error message.
 3. Run with **Save Version -> Save & Run All (Commit)**, so it keeps running with the tab closed.
    Expect ~1 h of downloads and setup, then roughly 3-5 h of generation (both models at once).
 
@@ -79,24 +79,40 @@ try:
     from kaggle_secrets import UserSecretsClient
 
     _secrets = UserSecretsClient()
-    os.environ["HF_TOKEN"] = _secrets.get_secret("HF_TOKEN")
-    _github_token = _secrets.get_secret("GITHUB_TOKEN")
+    # .strip(): a secret pasted with a leading space broke the clone URL on the first real run.
+    os.environ["HF_TOKEN"] = _secrets.get_secret("HF_TOKEN").strip()
+    _github_token = _secrets.get_secret("GITHUB_TOKEN").strip()
 except Exception as error:
     message = "Attach the HF_TOKEN and GITHUB_TOKEN secrets (Add-ons -> Secrets)."
     raise SystemExit(message) from error
 
 if not WORK.exists():
-    # The token goes in the clone URL only, is never echoed, and is stripped from the remote.
-    subprocess.run(
-        [
-            "git", "clone", "--quiet",
-            f"https://x-access-token:{{_github_token}}@{{REPO}}", str(WORK),
-        ],
-        check=True,
+    # The token NEVER appears in a command line: a failed subprocess prints its argv, and on the
+    # first real run that printed the token. It travels as an HTTP header set through git's
+    # GIT_CONFIG_* environment variables, scoped to this one clone, and any error text is
+    # scrubbed of it before it is shown.
+    import base64
+
+    _basic = base64.b64encode(f"x-access-token:{{_github_token}}".encode()).decode()
+    _env = {{
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {{_basic}}",
+    }}
+    _clone = subprocess.run(
+        ["git", "clone", "--quiet", f"https://{{REPO}}", str(WORK)],
+        env=_env,
+        capture_output=True,
+        text=True,
     )
-    subprocess.run(
-        ["git", "-C", str(WORK), "remote", "set-url", "origin", f"https://{{REPO}}"], check=True
-    )
+    if _clone.returncode != 0:
+        _detail = (_clone.stderr or "").replace(_github_token, "***").replace(_basic, "***")
+        raise SystemExit(
+            f"git clone failed (exit {{_clone.returncode}}). Check the GITHUB_TOKEN secret: a "
+            f"fine-grained token with Contents: Read-only on the repository.\\n{{_detail[-1500:]}}"
+        )
 sh(f"git checkout --quiet {{REF}}", cwd=WORK)
 sh("git log -1 --format='%H %s'", cwd=WORK)
 """

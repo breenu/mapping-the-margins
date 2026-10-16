@@ -115,8 +115,12 @@ pooled fits, `seed_group` 0 = pooled; all nine free terms reported/drawn, no sel
   model × harm, x = the nine terms, three arms dodged, pooled CI + open seed points + grey headline
   E1 reference.
 - **Kaggle notebook `notebooks/r2_kaggle.ipynb`, GENERATED** by `scripts/build_r2_notebook.py`
-  (`--check` in tests): clones the PRIVATE repo at tag **`r2-v1`** via a `GITHUB_TOKEN` Kaggle secret
-  (never printed, stripped from the remote), `uv sync --locked`, verify-gpu both models, builds
+  (`--check` in tests): clones the PRIVATE repo at tag **`r2-v1`** via a `GITHUB_TOKEN` Kaggle secret.
+  ⚠ 16 Oct: the first real run LEAKED the token — it rode in the clone URL, the clone failed (a
+  leading space in the secret), and `CalledProcessError` printed the argv. Token revoked by the human.
+  FIX: secrets `.strip()`ed; the token now travels ONLY as an `http.extraheader` via `GIT_CONFIG_*`
+  env vars (verified: a bogus header is rejected by GitHub), never in any argv; error text scrubbed;
+  a test pins all of it. The tag stays `r2-v1` (generation code unchanged; only the notebook moved), `uv sync --locked`, verify-gpu both models, builds
   prompts ONCE, then one model per T4 in parallel, packs `r2_kaggle_outputs.tar.gz`.
 - **Labelling:** `scripts/label_sheets.py` export/import (BLIND sheets: text only; strict 0/1 import);
   calibration samples drawn across BOTH models (200/harm type, `build_calibration_sample.py` now

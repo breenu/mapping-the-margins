@@ -302,13 +302,19 @@ def test_the_kaggle_notebook_is_generated_and_up_to_date() -> None:
     assert builder.main(["--check"]) == 0
 
 
-def test_the_kaggle_notebook_never_prints_or_keeps_the_github_token() -> None:
+def test_the_kaggle_notebook_never_puts_the_github_token_in_a_command() -> None:
+    """Found on the first real Kaggle run: the token rode in the clone URL, the clone failed, and
+    CalledProcessError printed the full argv -- token included. It must never be in an argv."""
     import scripts.build_r2_notebook as builder
 
     cells = json.loads(builder.render_notebook())["cells"]
     code = "\n".join("".join(c["source"]) for c in cells if c["cell_type"] == "code")
-    assert "print(_github_token" not in code and "{_github_token}" in code
-    assert 'remote", "set-url"' in code  # stripped from the clone's remote
+    assert "x-access-token:{_github_token}@" not in code  # not in a URL
+    assert "@{REPO}" not in code
+    assert "extraheader" in code and "GIT_CONFIG_VALUE_0" in code  # sent as a header via env
+    assert 'replace(_github_token, "***")' in code  # scrubbed from any error text
+    assert ".strip()" in code  # the leading-space secret that broke the first clone
+    assert "check=True" not in code.split("_clone = subprocess.run(")[1].split(")")[0]
     assert "--locked" in code and "pip install" not in code
 
 
