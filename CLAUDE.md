@@ -961,7 +961,8 @@ if any fails the fallback is ACL Rolling Review or a non-archival workshop, deci
 
 **Environment preconditions all met.** Repo at `C:\dev\mapping-the-margins` (outside OneDrive),
 git initialised on `main`, remote is **private** `github.com/breenu/mapping-the-margins`, CI runs on
-push. Flip the repo to public at P13 release, not before.
+push. **The repo was made PUBLIC by the human on 17 Oct 2026** (ahead of P13); an MIT `LICENSE`
+(copyright ReenuB, matching `pyproject.toml`) was added the same day. Commit author emails are public.
 
 **What this is (one line):** a reproducible, statistically rigorous **framework** (Python package
 `margins`) for **intersectional bias auditing of open-weight LLMs**. The deliverable is *the
